@@ -43,6 +43,9 @@
             <DataTemplate DataType="{x:Type vm:VoiceViewModel}">
                 <views:VoiceView />
             </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:OperationCenterViewModel}">
+                <views:OperationCenterView />
+            </DataTemplate>
             <DataTemplate DataType="{x:Type vm:PlaceholderViewModel}">
                 <views:PlaceholderView />
             </DataTemplate>

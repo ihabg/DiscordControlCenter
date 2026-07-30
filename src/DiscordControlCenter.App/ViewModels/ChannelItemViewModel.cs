@@ -9,6 +9,7 @@ public sealed class ChannelItemViewModel(
     PermissionResolution permissionResolution) : ObservableObject
 {
     private bool _isSelected;
+    private bool _isOperationSelected;
 
     public ChannelReadModel Model { get; } = model;
     public ulong Id => Model.Id;
@@ -68,6 +69,12 @@ public sealed class ChannelItemViewModel(
     {
         get => _isSelected;
         set => SetProperty(ref _isSelected, value);
+    }
+
+    public bool IsOperationSelected
+    {
+        get => _isOperationSelected;
+        set => SetProperty(ref _isOperationSelected, value);
     }
 
     private string FormatPermission(PermissionBits permission)

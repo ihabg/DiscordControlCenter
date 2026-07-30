@@ -1,0 +1,258 @@
+<Window x:Class="DiscordControlCenter.App.Views.ChannelOperationDraftWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+        Title="{Binding Title}"
+        Width="720"
+        Height="760"
+        MinWidth="620"
+        MinHeight="560"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResizeWithGrip"
+        ShowInTaskbar="False">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel>
+            <TextBlock Text="{Binding Title}" Style="{StaticResource PageHeadingStyle}" />
+            <TextBlock Text="{Binding ScopeSummary}"
+                       Style="{StaticResource SecondaryTextStyle}"
+                       Margin="0,5,0,0"
+                       TextTrimming="CharacterEllipsis" />
+            <Border Style="{StaticResource WarningPanelStyle}" Margin="0,14,0,0">
+                <TextBlock Text="This window only configures a plan. No Discord request can run until the exact preview is confirmed and revalidated."
+                           Style="{StaticResource SecondaryTextStyle}"
+                           TextWrapping="Wrap" />
+            </Border>
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1"
+                      Margin="0,18,0,14"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel>
+                <StackPanel Visibility="{Binding IsCreate, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <TextBlock Text="One channel name per line" Style="{StaticResource FormLabelStyle}" />
+                    <TextBox Text="{Binding NamesText, UpdateSourceTrigger=PropertyChanged}"
+                             AcceptsReturn="True"
+                             MinHeight="100"
+                             VerticalScrollBarVisibility="Auto"
+                             automation:AutomationProperties.Name="Channel names, one per line" />
+                    <TextBlock Text="Channel type" Style="{StaticResource FormLabelStyle}" Margin="0,14,0,7" />
+                    <ComboBox ItemsSource="{Binding CreatableTypes}"
+                              SelectedItem="{Binding SelectedChannelType}"
+                              automation:AutomationProperties.Name="Channel type" />
+                    <TextBlock Text="Initial position (-1 for automatic)"
+                               Style="{StaticResource FormLabelStyle}"
+                               Margin="0,14,0,7" />
+                    <TextBox Text="{Binding Position, UpdateSourceTrigger=PropertyChanged}"
+                             automation:AutomationProperties.Name="Initial channel position" />
+                </StackPanel>
+
+                <StackPanel Visibility="{Binding IsEdit, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <TextBlock Text="Channel name" Style="{StaticResource FormLabelStyle}" />
+                    <TextBox Text="{Binding NewName, UpdateSourceTrigger=PropertyChanged}"
+                             automation:AutomationProperties.Name="Edited channel name" />
+                </StackPanel>
+
+                <StackPanel Visibility="{Binding IsRename, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <TextBlock Text="Rename mode" Style="{StaticResource FormLabelStyle}" />
+                    <ComboBox ItemsSource="{Binding RenameModes}"
+                              SelectedItem="{Binding RenameMode}"
+                              automation:AutomationProperties.Name="Bulk rename mode" />
+                    <TextBlock Text="Value, prefix, suffix, find text, or numbering prefix"
+                               Style="{StaticResource FormLabelStyle}"
+                               Margin="0,14,0,7" />
+                    <TextBox Text="{Binding RenameValue, UpdateSourceTrigger=PropertyChanged}"
+                             automation:AutomationProperties.Name="Bulk rename value" />
+                    <TextBlock Text="Replacement text" Style="{StaticResource FormLabelStyle}" Margin="0,14,0,7" />
+                    <TextBox Text="{Binding ReplacementValue, UpdateSourceTrigger=PropertyChanged}"
+                             automation:AutomationProperties.Name="Find and replace replacement" />
+                    <UniformGrid Columns="2" Margin="0,14,0,0">
+                        <StackPanel Margin="0,0,8,0">
+                            <TextBlock Text="START NUMBER" Style="{StaticResource DetailLabelStyle}" />
+                            <TextBox Text="{Binding StartNumber, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+                        <StackPanel Margin="8,0,0,0">
+                            <TextBlock Text="ZERO PADDING" Style="{StaticResource DetailLabelStyle}" />
+                            <TextBox Text="{Binding ZeroPadding, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+                    </UniformGrid>
+                </StackPanel>
+
+                <StackPanel Visibility="{Binding IsMove, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <TextBlock Text="Destination category" Style="{StaticResource FormLabelStyle}" />
+                    <ComboBox ItemsSource="{Binding Categories}"
+                              SelectedItem="{Binding SelectedCategory}"
+                              automation:AutomationProperties.Name="Move destination category" />
+                    <TextBlock Text="Placement" Style="{StaticResource FormLabelStyle}" Margin="0,14,0,7" />
+                    <ComboBox ItemsSource="{Binding MovePlacements}"
+                              SelectedItem="{Binding MovePlacement}"
+                              automation:AutomationProperties.Name="Move placement" />
+                    <TextBlock Text="Before or after channel" Style="{StaticResource FormLabelStyle}" Margin="0,14,0,7" />
+                    <ComboBox ItemsSource="{Binding Anchors}"
+                              SelectedItem="{Binding SelectedAnchor}"
+                              automation:AutomationProperties.Name="Move anchor channel" />
+                </StackPanel>
+
+                <StackPanel Visibility="{Binding IsClone, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <TextBlock Text="Clone name" Style="{StaticResource FormLabelStyle}" />
+                    <TextBox Text="{Binding NewName, UpdateSourceTrigger=PropertyChanged}"
+                             automation:AutomationProperties.Name="Clone name" />
+                    <CheckBox Content="Copy modeled permission overwrites"
+                              IsChecked="{Binding CopyOverwrites}"
+                              Margin="0,14,0,0"
+                              Visibility="{Binding IsIndividualClone,
+                                                   Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <StackPanel Visibility="{Binding IsCategoryClone,
+                                                     Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <CheckBox Content="Copy category permission overwrites"
+                                  IsChecked="{Binding CopyCategoryOverwrites}"
+                                  Margin="0,14,0,0" />
+                        <CheckBox Content="Copy each selected child channel's overwrites"
+                                  IsChecked="{Binding CopyChildOverwrites}"
+                                  Margin="0,9,0,0" />
+                        <CheckBox Content="Synchronize cloned children to the cloned category instead"
+                                  IsChecked="{Binding SynchronizeClonedChildren}"
+                                  Margin="0,9,0,0" />
+                    </StackPanel>
+                    <CheckBox Content="Include all supported category children when no children are selected"
+                              IsChecked="{Binding IncludeAllChildren}"
+                              Margin="0,9,0,0"
+                              Visibility="{Binding IsCategoryClone, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                </StackPanel>
+
+                <StackPanel Visibility="{Binding IsLock, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <TextBlock Text="Target role" Style="{StaticResource FormLabelStyle}" />
+                    <ComboBox ItemsSource="{Binding Roles}"
+                              SelectedItem="{Binding SelectedRole}"
+                              automation:AutomationProperties.Name="Lock target role" />
+                    <CheckBox Content="Unlock selected bits"
+                              IsChecked="{Binding IsUnlock}"
+                              Margin="0,14,0,0" />
+                    <CheckBox Content="Include secondary bit (Add Reactions for text, Speak for voice)"
+                              IsChecked="{Binding IncludeSecondaryPermission}"
+                              Margin="0,9,0,0" />
+                </StackPanel>
+
+                <StackPanel Visibility="{Binding IsDelete, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <Border Style="{StaticResource DangerPanelStyle}">
+                        <TextBlock Text="Deletion has no true rollback. A structure backup cannot restore channel IDs, messages, threads, links, webhooks, integrations, or history."
+                                   Style="{StaticResource SecondaryTextStyle}"
+                                   TextWrapping="Wrap" />
+                    </Border>
+                    <CheckBox Content="Delete category only; leave children uncategorized"
+                              IsChecked="{Binding DeleteCategoryOnly}"
+                              Margin="0,14,0,0"
+                              Visibility="{Binding IsCategoryDelete, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <CheckBox Content="Include every child channel when deleting the category and children"
+                              IsChecked="{Binding IncludeAllChildren}"
+                              Margin="0,9,0,0"
+                              Visibility="{Binding IsCategoryDelete, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                </StackPanel>
+
+                <Border Style="{StaticResource PanelSurfaceStyle}"
+                        Visibility="{Binding IsSimplePreview, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <TextBlock Text="The planner will calculate the exact add, update, and remove overwrite diff against each selected channel's parent category."
+                               Style="{StaticResource SecondaryTextStyle}"
+                               TextWrapping="Wrap" />
+                </Border>
+
+                <StackPanel Margin="0,18,0,0"
+                            Visibility="{Binding IsCreate, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <TextBlock Text="Parent category" Style="{StaticResource FormLabelStyle}" />
+                    <ComboBox ItemsSource="{Binding Categories}"
+                              SelectedItem="{Binding SelectedCategory}"
+                              automation:AutomationProperties.Name="Creation parent category" />
+                    <CheckBox Content="Copy parent permission overwrites"
+                              IsChecked="{Binding CopyOverwrites}"
+                              Margin="0,10,0,0" />
+                </StackPanel>
+
+                <StackPanel Margin="0,18,0,0"
+                            Visibility="{Binding IsEdit, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <TextBlock Text="Parent category" Style="{StaticResource FormLabelStyle}" />
+                    <ComboBox ItemsSource="{Binding Categories}"
+                              SelectedItem="{Binding SelectedCategory}" />
+                    <TextBlock Text="Position"
+                               Style="{StaticResource FormLabelStyle}"
+                               Margin="0,14,0,7" />
+                    <TextBox Text="{Binding Position, UpdateSourceTrigger=PropertyChanged}"
+                             automation:AutomationProperties.Name="Edited channel position" />
+                </StackPanel>
+
+                <StackPanel Margin="0,18,0,0"
+                            Visibility="{Binding ShowsTextFields, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <TextBlock Text="Topic" Style="{StaticResource FormLabelStyle}" />
+                    <TextBox Text="{Binding Topic, UpdateSourceTrigger=PropertyChanged}"
+                             AcceptsReturn="True"
+                             MinHeight="70" />
+                    <CheckBox Content="NSFW" IsChecked="{Binding IsNsfw}" Margin="0,10,0,0" />
+                    <TextBlock Text="Slow mode seconds" Style="{StaticResource FormLabelStyle}" Margin="0,14,0,7" />
+                    <TextBox Text="{Binding SlowModeSeconds, UpdateSourceTrigger=PropertyChanged}" />
+                    <StackPanel Visibility="{Binding IsEdit,
+                                                     Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <TextBlock Text="Default auto-archive minutes"
+                                   Style="{StaticResource FormLabelStyle}"
+                                   Margin="0,14,0,7" />
+                        <ComboBox ItemsSource="{Binding AutoArchiveDurations}"
+                                  SelectedItem="{Binding DefaultAutoArchiveMinutes}"
+                                  automation:AutomationProperties.Name="Default auto archive duration" />
+                    </StackPanel>
+                </StackPanel>
+
+                <UniformGrid Columns="2"
+                             Margin="0,18,0,0"
+                             Visibility="{Binding ShowsVoiceFields, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <StackPanel Margin="0,0,8,0">
+                        <TextBlock Text="BITRATE" Style="{StaticResource DetailLabelStyle}" />
+                        <TextBox Text="{Binding Bitrate, UpdateSourceTrigger=PropertyChanged}" />
+                    </StackPanel>
+                    <StackPanel Margin="8,0,0,0">
+                        <TextBlock Text="USER LIMIT" Style="{StaticResource DetailLabelStyle}" />
+                        <TextBox Text="{Binding UserLimit, UpdateSourceTrigger=PropertyChanged}" />
+                    </StackPanel>
+                </UniformGrid>
+                <StackPanel Margin="0,14,0,0"
+                            Visibility="{Binding ShowsVoiceFields,
+                                                 Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <StackPanel Visibility="{Binding IsEdit,
+                                                     Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <TextBlock Text="Voice region override (blank for automatic)"
+                                   Style="{StaticResource FormLabelStyle}" />
+                        <TextBox Text="{Binding RegionOverride, UpdateSourceTrigger=PropertyChanged}"
+                                 automation:AutomationProperties.Name="Voice region override" />
+                    </StackPanel>
+                </StackPanel>
+
+                <TextBlock Text="Discord audit-log reason (optional, sanitized)"
+                           Style="{StaticResource FormLabelStyle}"
+                           Margin="0,20,0,7" />
+                <TextBox Text="{Binding AuditReason, UpdateSourceTrigger=PropertyChanged}"
+                         MaxLength="480"
+                         automation:AutomationProperties.Name="Optional Discord audit reason" />
+
+                <TextBlock Text="{Binding ValidationMessage}"
+                           Style="{StaticResource ValidationMessageStyle}"
+                           Visibility="{Binding HasValidationMessage, Converter={StaticResource BooleanToVisibilityConverter}}" />
+            </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="2"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right">
+            <Button Content="Cancel"
+                    IsCancel="True"
+                    Style="{StaticResource SecondaryButtonStyle}"
+                    Margin="0,0,10,0" />
+            <Button Content="Generate preview"
+                    IsDefault="True"
+                    Click="GeneratePreviewClick"
+                    automation:AutomationProperties.Name="Generate operation preview" />
+        </StackPanel>
+    </Grid>
+</Window>

@@ -6,9 +6,11 @@ using DiscordControlCenter.App.Services;
 using DiscordControlCenter.App.ViewModels;
 using DiscordControlCenter.App.Views;
 using DiscordControlCenter.Application.Explorer;
+using DiscordControlCenter.Application.Operations;
 using DiscordControlCenter.Core.Bots;
 using DiscordControlCenter.Core.Common;
 using DiscordControlCenter.Core.Explorer;
+using DiscordControlCenter.Core.Operations;
 
 namespace DiscordControlCenter.App.Tests;
 
@@ -86,6 +88,30 @@ public sealed class ExplorerViewSmokeTests
                     {
                         DataContext = new VoicePageData(voiceChannel)
                     };
+                    var operationScheduler = new UiScheduler();
+                    var operationPlan = UiOperationTestData.Plan();
+                    operationScheduler.Publish(
+                        new QueuedOperationSnapshot(
+                            operationPlan,
+                            ChannelOperationState.Running,
+                            1,
+                            new OperationProgress(
+                                operationPlan.OperationId,
+                                ChannelOperationState.Running,
+                                0,
+                                1,
+                                operationPlan.Steps.Length,
+                                "Executing.",
+                                DateTimeOffset.UtcNow),
+                            null,
+                            DateTimeOffset.UtcNow));
+                    using var operationCenterViewModel = new OperationCenterViewModel(
+                        operationScheduler,
+                        new UiDispatcher(application.Dispatcher));
+                    var operationCenterView = new OperationCenterView
+                    {
+                        DataContext = operationCenterViewModel
+                    };
                     var panel = new System.Windows.Controls.StackPanel();
                     panel.Children.Add(serverView);
                     panel.Children.Add(channelView);
@@ -93,6 +119,7 @@ public sealed class ExplorerViewSmokeTests
                     panel.Children.Add(rolesView);
                     panel.Children.Add(permissionsView);
                     panel.Children.Add(voiceView);
+                    panel.Children.Add(operationCenterView);
                     var window = new Window
                     {
                         Width = 1400,
@@ -103,6 +130,24 @@ public sealed class ExplorerViewSmokeTests
                     window.Show();
                     window.UpdateLayout();
                     window.Close();
+
+                    var draftExplorer = new FakeExplorer(server);
+                    var draftContext = new ChannelOperationContext(
+                        draftExplorer.Snapshot.BotProfileId,
+                        "Test bot",
+                        server,
+                        [server.Channels[0]]);
+                    var editDraft = new ChannelOperationDraftWindow(
+                        new ChannelOperationDraftViewModel(
+                            draftContext,
+                            ChannelOperationUiMode.Edit,
+                            new ChannelOperationPlanner(draftExplorer)))
+                    {
+                        ShowInTaskbar = false
+                    };
+                    editDraft.Show();
+                    editDraft.UpdateLayout();
+                    editDraft.Close();
 
                     var limitedServer = CreateServer() with
                     {

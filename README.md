@@ -1,7 +1,8 @@
 # Discord Control Center
 
 A Windows WPF control center for multiple official Discord bot accounts. The current
-milestone is a production-quality, read-only Discord observability surface:
+milestone combines the existing production-quality observability surface with a
+guarded channel-operations engine:
 
 - secure, isolated bot profiles and gateway runtimes;
 - Server and Channel Explorers;
@@ -9,10 +10,15 @@ milestone is a production-quality, read-only Discord observability surface:
 - Roles Explorer and hierarchy safety explanations;
 - member/role/channel permission simulation;
 - live Voice-State Inspector;
-- compact gateway and cache diagnostics.
+- compact gateway and cache diagnostics;
+- immutable channel-operation planning, exact preview, explicit confirmation,
+  freshness preflight, bounded execution, reconciliation, and persisted results.
 
-The application performs no Discord mutation, messaging, moderation, role assignment,
-or voice connection operation.
+Channel creation, supported edits, bulk rename, move/reorder, structural cloning,
+lock/unlock presets, category permission synchronization, and guarded deletion are the
+only Discord mutations. The application still performs no messaging, member
+moderation, role assignment/mutation, webhook management, user-account automation, or
+voice connection/transmission.
 
 ## Requirements
 
@@ -58,6 +64,100 @@ Bot Manager.
 Changing or removing the selected bot clears the server context. Disconnecting clears
 that bot's explorer cache. No snapshot or Discord entity is shared between bot
 profiles.
+
+## Guarded channel operations
+
+The Channels page has a deliberate checkbox selection mode and contextual action bar.
+Create does not require a selection. Other actions explain why they are disabled when
+the bot/server context, selected types, effective Manage Channels/Manage Roles result,
+or active same-server operation makes the action unsafe.
+
+Every write follows one non-bypassable lifecycle:
+
+1. Configure the intended change in a local dialog.
+2. Build an immutable plan from the current bot-scoped explorer snapshot.
+3. Validate names, types, values, parents, limits, duplicates, and operation scope.
+4. Display the exact before/after property and permission-overwrite diff.
+5. Match the required explicit or typed confirmation exactly.
+6. Persist and enqueue that unique plan.
+7. Immediately recheck connection, server availability, cache sequence, target
+   fingerprints, permissions, hierarchy, name conflicts, and channel limits.
+8. Save the required local structure backup before a destructive request.
+9. Execute ordered steps cooperatively with progress and cancellation.
+10. Reconcile uncertain REST outcomes and refresh the explorer cache.
+11. Persist a secret-free result and display it in Operation Center.
+
+The selected normal UI action cannot call the Discord adapter. It can only open the
+planner and confirmation flow. A changed relevant target makes the approved plan
+stale; a newer unrelated cache sequence is allowed when captured target fingerprints
+still match.
+
+Supported operations:
+
+- create one or up to 50 categories, text channels, or voice channels;
+- edit name, parent, position, text topic/NSFW/slow mode/default archive, and voice
+  bitrate/user limit/region override;
+- exact, prefix, suffix, find/replace, and sequential bulk rename;
+- move between categories or Uncategorized and bulk reorder within a category;
+- clone an ordinary text/voice channel's modeled structure, optionally with exact
+  overwrites;
+- clone a category alone, with selected children, or with all supported children,
+  independently choosing category overwrite copy, child overwrite copy, or child
+  synchronization;
+- lock/unlock only Send Messages/Add Reactions or Connect/Speak bits for a visible
+  role, preserving every unrelated allow and deny bit;
+- replace selected child-channel overwrites with the exact parent-category set;
+- delete ordinary channels, delete a category only, or explicitly delete selected/all
+  supported children before their category.
+
+Announcement, forum, media, stage, thread, and other channels remain inspectable but
+are blocked from destructive or structurally inaccurate Phase 4A plans.
+
+## Confirmation, queue, and Operation Center
+
+The confirmation window names the bot/server, risk text, affected count, estimated
+requests, required permissions, exact changes, overwrite bit differences,
+consequences, backup behavior, audit reason, stale warning, and correlation ID.
+High-impact deletion requires exact text such as `DELETE 3 CHANNELS`; category-plus-
+children deletion also includes the exact server name. Enter confirms only while the
+requirement matches; Escape cancels. One plan cannot be submitted twice.
+
+The bounded scheduler has two workers and capacity for 32 queued plans. A semaphore
+serializes each bot/server stream, so no two plans overlap on one server while
+different bot/server streams can progress independently. Operation Center shows
+persisted recent history, pending/running/waiting/cancelling state, progress, final
+step counts, safe errors, timestamps, bot profile, server, audit reason, correlation
+ID, backup reference, compensation, and reconciliation.
+
+Cancellation is cooperative. A request already accepted by Discord remains completed;
+not-started steps are reported as cancelled. “Partially completed” is not called
+rolled back. Failed, stale, cancelled, partial, or reconciliation-required work can
+only return to Channels to generate and approve a new plan; it is never replayed
+blindly.
+
+## Retry, reconciliation, compensation, and backups
+
+Discord.Net remains the primary rate-limit owner. The Application executor adds at
+most three bounded exponential-backoff attempts with jitter only for a known
+retryable failure. Permission, validation, stale, missing-target, cancellation, and
+Discord rejection failures are not retried. Timeout, network, and server-error
+outcomes are treated as uncertain and reconciled before another request.
+
+Creation reconciliation matches server, parent, modeled type, name, and operation
+timeframe. Zero matches means known not applied, one means applied, and multiple
+matches require manual review. Updates compare exact before/after fingerprints;
+deletes compare target presence; bulk reorder compares every captured channel.
+
+Compensation is attempted only when accurately modeled: delete a newly created
+resource, restore a captured property/parent/position, bulk order, or exact overwrite.
+Deletion has no rollback. A backup can recreate some structure but cannot restore IDs,
+messages, links, threads, webhooks, integrations, or every Discord-side association.
+
+Before a high-risk/destructive plan, SQLite stores the relevant server/category/
+channel structure, modeled forum metadata where present, exact raw overwrite values,
+source bot, explorer sequence, timestamp, and correlation ID. It stores no tokens,
+messages, DMs, voice content, authorization data, or member directory. Backup failure
+blocks the first Discord request.
 
 ## Guild Members privileged intent
 
@@ -173,36 +273,47 @@ Subscriptions are paired with explicit asynchronous disposal.
 - No presence, activity/game, message, raw payload, authorization-header, or token
   logging.
 - Recoverable page errors and retries do not invoke the global fatal dialog.
+- Recoverable operation errors remain in Operation Center and do not invoke the global
+  fatal dialog.
 
 ## Discord permissions
 
-The bot needs normal access to each server and channel it should inspect. No Discord
-permission is required merely to use the local explorers beyond what Discord exposes
-to that bot. Permissions such as Manage Roles, Moderate Members, Move Members, or
-Manage Nicknames are displayed as read-only capability diagnostics. This phase never
-uses them to perform an operation.
+Read-only explorers still need only the access Discord exposes to the selected bot.
+All channel mutations require **Manage Channels** for every target. Copying, creating,
+locking, removing, or synchronizing permission overwrites also requires **Manage
+Roles** and passes existing role-hierarchy safety checks for non-`@everyone` roles.
+Administrator is resolved through the existing permission service. Incomplete or
+unknown permission data blocks execution.
+
+The selected official bot account performs every request. Developer Portal intent
+configuration is unrelated to these guild permissions.
 
 ## Manual test checklist
 
-Use only a disposable private test server and test accounts:
+Use only harmless, clearly named resources in a disposable private server:
 
-1. Verify the existing Server and Channel Explorers.
-2. Confirm role order, `@everyone` placement, selected-bot highest role, and
-   manageability explanations.
-3. Confirm Members clearly reports limited mode with the local option disabled.
-4. Enable Server Members Intent in the Developer Portal.
-5. Enable members locally, confirm only that bot reconnects, and load the complete
-   disposable-server member list.
-6. Join with a test account and change its nickname and roles.
-7. Move the test account into and between voice/stage channels; test mute, deafen,
-   video, streaming, suppression, and request-to-speak where practical.
-8. Remove the test account and confirm selected member/voice state clears safely.
-9. Compare bot/member/role permissions against Discord.
-10. Disable members locally and reconnect without `GuildMembers`.
-11. If a second bot is configured, verify its runtime and selections are unaffected.
-12. Review local logs and SQLite: no token, authorization header, raw payload, message
-    content, or member directory should appear.
-13. Confirm the application modified no Discord resource.
+1. Connect the test bot and verify Servers, Channels, Members, Roles, Permissions, and
+   Voice still load.
+2. Create a temporary category, three text channels, and one voice channel through
+   separate exact previews.
+3. Sequentially rename, edit topic/slow mode, move, and bulk reorder those channels.
+4. Clone one text channel and clone the temporary category with selected/all children.
+5. Lock then unlock a text channel for `@everyone`; compare raw unrelated overwrite
+   bits before and after.
+6. Synchronize one child channel with its category and inspect every add/update/remove
+   overwrite in the preview.
+7. Cancel a harmless multi-step create/rename operation and verify completed,
+   not-started, and uncertain counts are honest.
+8. Temporarily remove Manage Channels and Manage Roles separately and verify preflight
+   rejects the relevant plan before a request.
+9. Disconnect/reconnect during harmless work and inspect reconciliation.
+10. Delete one temporary ordinary channel, then test category-only deletion and verify
+    children become uncategorized.
+11. Recreate temporary structure and test explicit children-first category deletion.
+12. Verify a backup row predates each destructive result.
+13. Inspect SQLite/logs for tokens, authorization data, raw payloads, message content,
+    DMs, member directories, or unsafe exception messages.
+14. Verify clean application shutdown terminates queue workers and gateway clients.
 
 ## Known limitations
 
@@ -214,12 +325,21 @@ Use only a disposable private test server and test accounts:
 - The 100,000-member safety cap means larger servers remain explicitly partial.
 - Role/member counts are exact only when the member snapshot is complete.
 - Gateway cache visibility follows the bot's actual access.
-- All Phase 3 capability and hierarchy results are informational.
+- Discord channel endpoints have no universal application idempotency key; ambiguous
+  reconciliation deliberately requires manual review.
+- Existing same-name Discord resources are blocked for create/clone because they make
+  safe timeout reconciliation ambiguous.
+- Server-specific maximum voice bitrate is ultimately enforced by Discord; the local
+  range validator allows 8,000–384,000 bps.
+- Category clone supports only ordinary text and voice children in Phase 4A.
+- Backups are retained locally until manually removed with the application data; an
+  automatic retention/deletion policy is not yet exposed.
+- Recreating structure from backup is manual recovery, not undo deletion.
 
-## Phase 4 recommendation
+## Phase 4B recommendation
 
-Phase 4 should preserve the hierarchy preflight service as a mandatory gate and add a
-previewable, cancellable, rate-limit-aware write engine. Start with narrowly scoped
-channel operations, explicit confirmation, audit correlation, idempotency, and safe
-rollback/partial-failure reporting. Do not combine that engine with the read-model
-cache or bypass Discord hierarchy and permission checks.
+Add a dedicated backup browser and explicit “recreate structure” planner, configurable
+history/backup retention, richer safe operation search/filter/export, and server-tier-
+aware voice validation. Keep member moderation, role writes, messaging, webhooks,
+auto-role behavior, and voice connections in separate later phases with their own
+immutable plans and stricter safety policies.

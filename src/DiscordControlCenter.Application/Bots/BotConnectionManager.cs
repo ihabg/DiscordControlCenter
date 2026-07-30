@@ -1,9 +1,11 @@
 using System.Collections.Concurrent;
 using DiscordControlCenter.Application.Common;
 using DiscordControlCenter.Application.Explorer;
+using DiscordControlCenter.Application.Operations;
 using DiscordControlCenter.Core.Bots;
 using DiscordControlCenter.Core.Common;
 using DiscordControlCenter.Core.Explorer;
+using DiscordControlCenter.Core.Operations;
 using DiscordControlCenter.Core.Security;
 using Microsoft.Extensions.Logging;
 
@@ -16,6 +18,7 @@ public sealed class BotConnectionManager(
     IPermissionResolutionService permissionService,
     ILogger<BotConnectionManager> logger) : IBotConnectionManager
     , IBotExplorerService
+    , IDiscordChannelWriter
 {
     private readonly ConcurrentDictionary<Guid, BotRuntime> _runtimes = new();
     private readonly ConcurrentDictionary<Guid, BotConnectionSnapshot> _snapshots = new();
@@ -350,6 +353,136 @@ public sealed class BotConnectionManager(
             .ToArray();
     }
 
+    public Task<ChannelWriteOutcome> CreateCategoryAsync(
+        Guid botProfileId,
+        ulong serverId,
+        ChannelOperationStateSnapshot after,
+        string? auditReason,
+        CancellationToken cancellationToken) =>
+        ExecuteWriteAsync(
+            botProfileId,
+            client => client.CreateCategoryAsync(
+                serverId,
+                after,
+                auditReason,
+                cancellationToken),
+            cancellationToken);
+
+    public Task<ChannelWriteOutcome> CreateTextChannelAsync(
+        Guid botProfileId,
+        ulong serverId,
+        ChannelOperationStateSnapshot after,
+        string? auditReason,
+        CancellationToken cancellationToken) =>
+        ExecuteWriteAsync(
+            botProfileId,
+            client => client.CreateTextChannelAsync(
+                serverId,
+                after,
+                auditReason,
+                cancellationToken),
+            cancellationToken);
+
+    public Task<ChannelWriteOutcome> CreateVoiceChannelAsync(
+        Guid botProfileId,
+        ulong serverId,
+        ChannelOperationStateSnapshot after,
+        string? auditReason,
+        CancellationToken cancellationToken) =>
+        ExecuteWriteAsync(
+            botProfileId,
+            client => client.CreateVoiceChannelAsync(
+                serverId,
+                after,
+                auditReason,
+                cancellationToken),
+            cancellationToken);
+
+    public Task<ChannelWriteOutcome> ModifyChannelAsync(
+        Guid botProfileId,
+        ulong serverId,
+        ulong channelId,
+        ChannelOperationStateSnapshot before,
+        ChannelOperationStateSnapshot after,
+        string? auditReason,
+        CancellationToken cancellationToken) =>
+        ExecuteWriteAsync(
+            botProfileId,
+            client => client.ModifyChannelAsync(
+                serverId,
+                channelId,
+                before,
+                after,
+                auditReason,
+                cancellationToken),
+            cancellationToken);
+
+    public Task<ChannelWriteOutcome> ReorderChannelsAsync(
+        Guid botProfileId,
+        ulong serverId,
+        IReadOnlyList<ChannelPositionUpdate> positions,
+        string? auditReason,
+        CancellationToken cancellationToken) =>
+        ExecuteWriteAsync(
+            botProfileId,
+            client => client.ReorderChannelsAsync(
+                serverId,
+                positions,
+                auditReason,
+                cancellationToken),
+            cancellationToken);
+
+    public Task<ChannelWriteOutcome> SetPermissionOverwriteAsync(
+        Guid botProfileId,
+        ulong serverId,
+        ulong channelId,
+        ChannelPermissionOverwriteSnapshot overwrite,
+        string? auditReason,
+        CancellationToken cancellationToken) =>
+        ExecuteWriteAsync(
+            botProfileId,
+            client => client.SetPermissionOverwriteAsync(
+                serverId,
+                channelId,
+                overwrite,
+                auditReason,
+                cancellationToken),
+            cancellationToken);
+
+    public Task<ChannelWriteOutcome> DeletePermissionOverwriteAsync(
+        Guid botProfileId,
+        ulong serverId,
+        ulong channelId,
+        ulong targetId,
+        PermissionTargetKind targetType,
+        string? auditReason,
+        CancellationToken cancellationToken) =>
+        ExecuteWriteAsync(
+            botProfileId,
+            client => client.DeletePermissionOverwriteAsync(
+                serverId,
+                channelId,
+                targetId,
+                targetType,
+                auditReason,
+                cancellationToken),
+            cancellationToken);
+
+    public Task<ChannelWriteOutcome> DeleteChannelAsync(
+        Guid botProfileId,
+        ulong serverId,
+        ulong channelId,
+        string? auditReason,
+        CancellationToken cancellationToken) =>
+        ExecuteWriteAsync(
+            botProfileId,
+            client => client.DeleteChannelAsync(
+                serverId,
+                channelId,
+                auditReason,
+                cancellationToken),
+            cancellationToken);
+
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
@@ -397,6 +530,45 @@ public sealed class BotConnectionManager(
         _snapshots[snapshot.BotProfileId] = snapshot;
         StatusChanged?.Invoke(this, snapshot);
     }
+
+    private async Task<ChannelWriteOutcome> ExecuteWriteAsync(
+        Guid botProfileId,
+        Func<IDiscordBotClient, Task<ChannelWriteOutcome>> operation,
+        CancellationToken cancellationToken)
+    {
+        if (!_runtimes.TryGetValue(botProfileId, out var runtime))
+        {
+            return WriteUnavailable("BOT_DISCONNECTED", "The selected bot is not connected.");
+        }
+
+        await runtime.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (runtime.Client.Snapshot.State != BotConnectionState.Connected)
+            {
+                return WriteUnavailable("BOT_DISCONNECTED", "The selected bot is not connected.");
+            }
+
+            return await operation(runtime.Client).ConfigureAwait(false);
+        }
+        finally
+        {
+            runtime.Gate.Release();
+        }
+    }
+
+    private static ChannelWriteOutcome WriteUnavailable(string code, string message) =>
+        new(
+            false,
+            null,
+            new OperationFailure(
+                OperationFailureKind.Validation,
+                code,
+                message,
+                null,
+                false,
+                OperationOutcomeCertainty.KnownFailed),
+            OperationOutcomeCertainty.KnownFailed);
 
     private static DataCompleteness AggregateCompleteness(
         IEnumerable<DataCompleteness> values,

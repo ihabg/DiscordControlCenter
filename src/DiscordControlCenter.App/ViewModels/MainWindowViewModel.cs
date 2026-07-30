@@ -19,6 +19,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private readonly RolesViewModel _roles;
     private readonly PermissionSimulatorViewModel _permissionSimulator;
     private readonly VoiceViewModel _voice;
+    private readonly OperationCenterViewModel _operations;
     private readonly IBotConnectionManager _connectionManager;
     private readonly IBotExplorerService _explorer;
     private readonly UiDispatcher _dispatcher;
@@ -38,6 +39,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         RolesViewModel roles,
         PermissionSimulatorViewModel permissionSimulator,
         VoiceViewModel voice,
+        OperationCenterViewModel operations,
         IBotConnectionManager connectionManager,
         IBotExplorerService explorer,
         UiDispatcher dispatcher)
@@ -50,6 +52,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         _roles = roles;
         _permissionSimulator = permissionSimulator;
         _voice = voice;
+        _operations = operations;
         _connectionManager = connectionManager;
         _explorer = explorer;
         _dispatcher = dispatcher;
@@ -60,6 +63,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             new("◆", "Bots"),
             new("▰", "Servers"),
             new("#", "Channels"),
+            new("↯", "Operations"),
             new("P", "Permissions"),
             new("♟", "Members"),
             new("♛", "Roles"),
@@ -73,6 +77,9 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         NavigateCommand = new RelayCommand(Navigate);
         _bots.Bots.CollectionChanged += OnBotsChanged;
         _servers.ServerSelected += OnServerExplorerSelected;
+        _operations.RegeneratePreviewRequested += OnRegeneratePreviewRequested;
+        _channels.OperationQueued += OnChannelOperationQueued;
+        _channels.OperationCenterRequested += OnChannelOperationQueued;
         _connectionManager.StatusChanged += OnConnectionStatusChanged;
         _explorer.CacheChanged += OnExplorerCacheChanged;
     }
@@ -100,7 +107,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             SelectedServer = null;
             UpdateToolbarServers();
             _servers.SetBot(value?.Id, _selectedConnectionState);
-            _channels.SetBot(value?.Id, _selectedConnectionState);
+            _channels.SetBot(value?.Id, _selectedConnectionState, value?.DisplayName);
             _members.SetContext(value?.Id, _selectedConnectionState, null);
             _roles.SetContext(value?.Id, _selectedConnectionState, null);
             _permissionSimulator.SetContext(value?.Id, _selectedConnectionState, null);
@@ -163,6 +170,9 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     {
         _bots.Bots.CollectionChanged -= OnBotsChanged;
         _servers.ServerSelected -= OnServerExplorerSelected;
+        _operations.RegeneratePreviewRequested -= OnRegeneratePreviewRequested;
+        _channels.OperationQueued -= OnChannelOperationQueued;
+        _channels.OperationCenterRequested -= OnChannelOperationQueued;
         _connectionManager.StatusChanged -= OnConnectionStatusChanged;
         _explorer.CacheChanged -= OnExplorerCacheChanged;
         _dashboard.Dispose();
@@ -172,6 +182,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         _roles.Dispose();
         _permissionSimulator.Dispose();
         _voice.Dispose();
+        _operations.Dispose();
         _bots.Dispose();
     }
 
@@ -189,6 +200,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             "Bots" => _bots,
             "Servers" => _servers,
             "Channels" => _channels,
+            "Operations" => _operations,
             "Members" => _members,
             "Roles" => _roles,
             "Permissions" => _permissionSimulator,
@@ -197,6 +209,22 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 item.Label,
                 "This module is staged for a later milestone. The navigation and service boundaries are ready for it.")
         };
+    }
+
+    private void OnRegeneratePreviewRequested(object? sender, EventArgs e)
+    {
+        _ = sender;
+        _ = e;
+        CurrentTitle = "Channels";
+        CurrentPage = _channels;
+    }
+
+    private void OnChannelOperationQueued(object? sender, EventArgs e)
+    {
+        _ = sender;
+        _ = e;
+        CurrentTitle = "Operations";
+        CurrentPage = _operations;
     }
 
     private void OnBotsChanged(object? sender, NotifyCollectionChangedEventArgs e)

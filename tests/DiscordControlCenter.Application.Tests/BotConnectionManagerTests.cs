@@ -1,6 +1,9 @@
 using DiscordControlCenter.Application.Bots;
 using DiscordControlCenter.Application.Explorer;
+using DiscordControlCenter.Application.Operations;
 using DiscordControlCenter.Core.Bots;
+using DiscordControlCenter.Core.Explorer;
+using DiscordControlCenter.Core.Operations;
 using DiscordControlCenter.Core.Security;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -110,6 +113,75 @@ public sealed class BotConnectionManagerTests
             return Task.CompletedTask;
         }
 
+        public Task<ChannelWriteOutcome> CreateCategoryAsync(
+            ulong serverId,
+            ChannelOperationStateSnapshot after,
+            string? auditReason,
+            CancellationToken cancellationToken) =>
+            UnsupportedWriteAsync();
+
+        public Task<ChannelWriteOutcome> CreateTextChannelAsync(
+            ulong serverId,
+            ChannelOperationStateSnapshot after,
+            string? auditReason,
+            CancellationToken cancellationToken) =>
+            UnsupportedWriteAsync();
+
+        public Task<ChannelWriteOutcome> CreateVoiceChannelAsync(
+            ulong serverId,
+            ChannelOperationStateSnapshot after,
+            string? auditReason,
+            CancellationToken cancellationToken) =>
+            UnsupportedWriteAsync();
+
+        public Task<ChannelWriteOutcome> ModifyChannelAsync(
+            ulong serverId,
+            ulong channelId,
+            ChannelOperationStateSnapshot before,
+            ChannelOperationStateSnapshot after,
+            string? auditReason,
+            CancellationToken cancellationToken) =>
+            UnsupportedWriteAsync();
+
+        public Task<ChannelWriteOutcome> ReorderChannelsAsync(
+            ulong serverId,
+            IReadOnlyList<ChannelPositionUpdate> positions,
+            string? auditReason,
+            CancellationToken cancellationToken) =>
+            UnsupportedWriteAsync();
+
+        public Task<ChannelWriteOutcome> SetPermissionOverwriteAsync(
+            ulong serverId,
+            ulong channelId,
+            ChannelPermissionOverwriteSnapshot overwrite,
+            string? auditReason,
+            CancellationToken cancellationToken) =>
+            UnsupportedWriteAsync();
+
+        public Task<ChannelWriteOutcome> DeletePermissionOverwriteAsync(
+            ulong serverId,
+            ulong channelId,
+            ulong targetId,
+            PermissionTargetKind targetType,
+            string? auditReason,
+            CancellationToken cancellationToken) =>
+            UnsupportedWriteAsync();
+
+        public Task<ChannelWriteOutcome> DeleteChannelAsync(
+            ulong serverId,
+            ulong channelId,
+            string? auditReason,
+            CancellationToken cancellationToken) =>
+            UnsupportedWriteAsync();
+
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        private static Task<ChannelWriteOutcome> UnsupportedWriteAsync() =>
+            Task.FromResult(
+                new ChannelWriteOutcome(
+                    false,
+                    null,
+                    null,
+                    OperationOutcomeCertainty.KnownFailed));
     }
 }

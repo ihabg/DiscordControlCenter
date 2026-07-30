@@ -30,7 +30,22 @@
         <HierarchicalDataTemplate DataType="{x:Type vm:ChannelGroupViewModel}"
                                   ItemsSource="{Binding Channels}">
             <Grid MinWidth="300" Margin="0,3,0,2">
-                <Button Command="{Binding DataContext.SelectChannelCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <CheckBox IsChecked="{Binding Category.IsOperationSelected, Mode=OneWay}"
+                          Command="{Binding DataContext.ToggleOperationSelectionCommand,
+                                            RelativeSource={RelativeSource AncestorType=UserControl}}"
+                          CommandParameter="{Binding Category}"
+                          VerticalAlignment="Center"
+                          Margin="5,0,7,0"
+                          Visibility="{Binding HasCategory,
+                                               Converter={StaticResource BooleanToVisibilityConverter}}"
+                          ToolTip="Include this category in the next guarded operation"
+                          automation:AutomationProperties.Name="Select category for operation" />
+                <Button Grid.Column="1"
+                        Command="{Binding DataContext.SelectChannelCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                         CommandParameter="{Binding Category}"
                         Style="{StaticResource ChannelRowButtonStyle}"
                         Visibility="{Binding HasCategory, Converter={StaticResource BooleanToVisibilityConverter}}"
@@ -55,7 +70,8 @@
                         </StackPanel>
                     </Grid>
                 </Button>
-                <TextBlock Text="Uncategorized"
+                <TextBlock Grid.ColumnSpan="2"
+                           Text="Uncategorized"
                            Style="{StaticResource SectionHeadingStyle}"
                            FontSize="13"
                            Margin="10,8"
@@ -63,8 +79,23 @@
             </Grid>
         </HierarchicalDataTemplate>
         <DataTemplate DataType="{x:Type vm:ChannelItemViewModel}">
-            <Button Command="{Binding DataContext.SelectChannelCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                    CommandParameter="{Binding}"
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <CheckBox IsChecked="{Binding IsOperationSelected, Mode=OneWay}"
+                          Command="{Binding DataContext.ToggleOperationSelectionCommand,
+                                            RelativeSource={RelativeSource AncestorType=UserControl}}"
+                          CommandParameter="{Binding}"
+                          VerticalAlignment="Center"
+                          Margin="5,0,7,0"
+                          ToolTip="Include this channel in the next guarded operation"
+                          automation:AutomationProperties.Name="{Binding Name,
+                                      StringFormat=Select {0} for operation}" />
+                <Button Grid.Column="1"
+                        Command="{Binding DataContext.SelectChannelCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                     CommandParameter="{Binding}"
                     Style="{StaticResource ChannelRowButtonStyle}"
                     ToolTip="{Binding PermissionSynchronizationText}"
                     automation:AutomationProperties.Name="{Binding Name}">
@@ -102,18 +133,102 @@
                                    TextAlignment="Right" />
                     </StackPanel>
                 </Grid>
-            </Button>
+                </Button>
+            </Grid>
         </DataTemplate>
     </UserControl.Resources>
 
     <Grid Margin="24,22">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="2*" MinWidth="330" />
             <ColumnDefinition Width="12" />
             <ColumnDefinition Width="3*" MinWidth="390" />
         </Grid.ColumnDefinitions>
 
-        <Border Grid.Column="0" Style="{StaticResource PanelSurfaceStyle}" Padding="0">
+        <Border Grid.ColumnSpan="3"
+                Style="{StaticResource PanelSurfaceStyle}"
+                Padding="12"
+                Margin="0,0,0,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel VerticalAlignment="Center" Margin="2,0,14,0">
+                    <TextBlock Text="Guarded channel operations"
+                               Style="{StaticResource BodyTextStyle}"
+                               FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding OperationSelectionSummary}"
+                               Style="{StaticResource MutedTextStyle}"
+                               FontSize="11" />
+                </StackPanel>
+                <ScrollViewer Grid.Column="1"
+                              HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Disabled">
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="Create"
+                                Command="{Binding CreateOperationCommand}"
+                                ToolTip="{Binding CreateOperationExplanation}"
+                                automation:AutomationProperties.Name="Create channels operation" />
+                        <Button Content="Edit"
+                                Command="{Binding EditOperationCommand}"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Margin="7,0,0,0"
+                                ToolTip="{Binding EditOperationExplanation}" />
+                        <Button Content="Rename"
+                                Command="{Binding RenameOperationCommand}"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Margin="7,0,0,0"
+                                ToolTip="{Binding RenameOperationExplanation}" />
+                        <Button Content="Move"
+                                Command="{Binding MoveOperationCommand}"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Margin="7,0,0,0"
+                                ToolTip="{Binding MoveOperationExplanation}" />
+                        <Button Content="Clone"
+                                Command="{Binding CloneOperationCommand}"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Margin="7,0,0,0"
+                                ToolTip="{Binding CloneOperationExplanation}" />
+                        <Button Content="Lock / unlock"
+                                Command="{Binding LockOperationCommand}"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Margin="7,0,0,0"
+                                ToolTip="{Binding LockOperationExplanation}" />
+                        <Button Content="Sync permissions"
+                                Command="{Binding SynchronizeOperationCommand}"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Margin="7,0,0,0"
+                                ToolTip="{Binding SynchronizeOperationExplanation}" />
+                        <Button Content="Delete"
+                                Command="{Binding DeleteOperationCommand}"
+                                Style="{StaticResource DangerButtonStyle}"
+                                Margin="7,0,0,0"
+                                ToolTip="{Binding DeleteOperationExplanation}" />
+                    </StackPanel>
+                </ScrollViewer>
+                <Button Grid.Column="2"
+                        Content="Operation Center"
+                        Command="{Binding OpenOperationCenterCommand}"
+                        Style="{StaticResource SecondaryButtonStyle}"
+                        Margin="12,0,0,0"
+                        ToolTip="View operation progress, cancellation, and persisted results" />
+                <Button Grid.Column="3"
+                        Content="Clear"
+                        Command="{Binding ClearOperationSelectionCommand}"
+                        Style="{StaticResource SecondaryButtonStyle}"
+                        Margin="7,0,0,0"
+                        ToolTip="Clear operation selection" />
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource PanelSurfaceStyle}" Padding="0">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -191,7 +306,7 @@
             </Grid>
         </Border>
 
-        <Border Grid.Column="2" Style="{StaticResource PanelSurfaceStyle}" Padding="0">
+        <Border Grid.Row="1" Grid.Column="2" Style="{StaticResource PanelSurfaceStyle}" Padding="0">
             <Grid>
                 <StackPanel HorizontalAlignment="Center"
                             VerticalAlignment="Center"

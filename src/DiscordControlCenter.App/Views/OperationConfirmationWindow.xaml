@@ -1,0 +1,189 @@
+<Window x:Class="DiscordControlCenter.App.Views.OperationConfirmationWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+        Title="Confirm channel operation"
+        Width="820"
+        Height="780"
+        MinWidth="680"
+        MinHeight="560"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResizeWithGrip"
+        ShowInTaskbar="False">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel>
+            <TextBlock Text="{Binding Preview.Title}" Style="{StaticResource PageHeadingStyle}" />
+            <TextBlock Style="{StaticResource SecondaryTextStyle}" Margin="0,5,0,0">
+                <Run Text="{Binding Preview.BotDisplayName, Mode=OneWay}" />
+                <Run Text="  •  " />
+                <Run Text="{Binding Preview.ServerName, Mode=OneWay}" />
+                <Run Text="  •  " />
+                <Run Text="{Binding RiskText, Mode=OneWay}" />
+            </TextBlock>
+            <Border Style="{StaticResource WarningPanelStyle}" Margin="0,14,0,0">
+                <StackPanel>
+                    <TextBlock Text="Preview and confirmation are mandatory"
+                               Style="{StaticResource SectionHeadingStyle}"
+                               FontSize="14" />
+                    <TextBlock Text="Immediately before execution, the application will recheck connection, permissions, hierarchy, target fingerprints, and relevant before state. A changed target makes this plan stale."
+                               Style="{StaticResource SecondaryTextStyle}"
+                               TextWrapping="Wrap"
+                               Margin="0,5,0,0" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1"
+                      Margin="0,16,0,14"
+                      VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <UniformGrid Columns="3">
+                    <StackPanel Margin="0,0,12,12">
+                        <TextBlock Text="AFFECTED RESOURCES" Style="{StaticResource DetailLabelStyle}" />
+                        <TextBlock Text="{Binding Preview.AffectedResourceCount}" Style="{StaticResource DetailValueStyle}" />
+                    </StackPanel>
+                    <StackPanel Margin="0,0,12,12">
+                        <TextBlock Text="ESTIMATED REQUESTS" Style="{StaticResource DetailLabelStyle}" />
+                        <TextBlock Text="{Binding Preview.EstimatedRequestCount}" Style="{StaticResource DetailValueStyle}" />
+                    </StackPanel>
+                    <StackPanel Margin="0,0,0,12">
+                        <TextBlock Text="CORRELATION ID" Style="{StaticResource DetailLabelStyle}" />
+                        <TextBlock Text="{Binding Preview.CorrelationId}"
+                                   Style="{StaticResource DetailValueStyle}"
+                                   TextTrimming="CharacterEllipsis"
+                                   ToolTip="{Binding Preview.CorrelationId}" />
+                    </StackPanel>
+                </UniformGrid>
+
+                <TextBlock Text="Required permissions" Style="{StaticResource SectionHeadingStyle}" Margin="0,10,0,8" />
+                <ItemsControl ItemsSource="{Binding Preview.PermissionRequirements}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding StringFormat=✓ {0}}"
+                                       Style="{StaticResource BodyTextStyle}"
+                                       Margin="0,2" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBlock Text="Exact property changes" Style="{StaticResource SectionHeadingStyle}" Margin="0,18,0,8" />
+                <ItemsControl ItemsSource="{Binding Preview.PropertyChanges}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Style="{StaticResource PanelSurfaceStyle}" Padding="12" Margin="0,0,0,7">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="2*" />
+                                        <ColumnDefinition Width="2*" />
+                                        <ColumnDefinition Width="22" />
+                                        <ColumnDefinition Width="2*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding PropertyName}"
+                                               Style="{StaticResource BodyTextStyle}"
+                                               FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding BeforeValue, TargetNullValue=Not present}"
+                                               Style="{StaticResource SecondaryTextStyle}"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Grid.Column="2"
+                                               Text="→"
+                                               Style="{StaticResource MutedTextStyle}"
+                                               HorizontalAlignment="Center" />
+                                    <TextBlock Grid.Column="3"
+                                               Text="{Binding AfterValue, TargetNullValue=Removed}"
+                                               Style="{StaticResource BodyTextStyle}"
+                                               TextWrapping="Wrap" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBlock Text="Permission-overwrite changes"
+                           Style="{StaticResource SectionHeadingStyle}"
+                           Margin="0,18,0,8"
+                           Visibility="{Binding HasPermissionOverwriteChanges,
+                                                Converter={StaticResource BooleanToVisibilityConverter}}" />
+                <ItemsControl ItemsSource="{Binding Preview.PermissionOverwriteChanges}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Style="{StaticResource PanelSurfaceStyle}" Padding="12" Margin="0,0,0,7">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding TargetDisplayName}"
+                                               Style="{StaticResource BodyTextStyle}"
+                                               FontWeight="SemiBold" />
+                                    <TextBlock Style="{StaticResource MutedTextStyle}" Margin="0,3,0,0">
+                                        <Run Text="Before allow/deny: " />
+                                        <Run Text="{Binding Before.AllowedRaw, Mode=OneWay, TargetNullValue=0}" />
+                                        <Run Text=" / " />
+                                        <Run Text="{Binding Before.DeniedRaw, Mode=OneWay, TargetNullValue=0}" />
+                                        <Run Text="  →  After: " />
+                                        <Run Text="{Binding After.AllowedRaw, Mode=OneWay, TargetNullValue=0}" />
+                                        <Run Text=" / " />
+                                        <Run Text="{Binding After.DeniedRaw, Mode=OneWay, TargetNullValue=0}" />
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBlock Text="Consequences" Style="{StaticResource SectionHeadingStyle}" Margin="0,18,0,8" />
+                <ItemsControl ItemsSource="{Binding Preview.Consequences}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding StringFormat=• {0}}"
+                                       Style="{StaticResource SecondaryTextStyle}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,2" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <Border Style="{StaticResource PanelSurfaceStyle}" Margin="0,18,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Backup and compensation" Style="{StaticResource SectionHeadingStyle}" FontSize="14" />
+                        <TextBlock Text="{Binding BackupText}"
+                                   Style="{StaticResource SecondaryTextStyle}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,5,0,0" />
+                    </StackPanel>
+                </Border>
+
+                <StackPanel Margin="0,18,0,0"
+                            Visibility="{Binding RequiresTypedConfirmation, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <TextBlock Text="{Binding Preview.ConfirmationRequirement.Prompt}"
+                               Style="{StaticResource FormLabelStyle}"
+                               TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding Preview.ConfirmationRequirement.RequiredText}"
+                               Style="{StaticResource BodyTextStyle}"
+                               FontWeight="Bold"
+                               Margin="0,0,0,7"
+                               TextWrapping="Wrap" />
+                    <TextBox Text="{Binding ConfirmationText, UpdateSourceTrigger=PropertyChanged}"
+                             automation:AutomationProperties.Name="Typed operation confirmation" />
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="2"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right">
+            <Button Content="Cancel"
+                    IsCancel="True"
+                    Style="{StaticResource SecondaryButtonStyle}"
+                    Margin="0,0,10,0" />
+            <Button Content="Confirm and queue"
+                    IsDefault="True"
+                    Command="{Binding ConfirmCommand}"
+                    automation:AutomationProperties.Name="Confirm and queue operation" />
+        </StackPanel>
+    </Grid>
+</Window>

@@ -6,8 +6,10 @@ using Discord.WebSocket;
 using DiscordControlCenter.Application.Bots;
 using DiscordControlCenter.Application.Common;
 using DiscordControlCenter.Application.Explorer;
+using DiscordControlCenter.Application.Operations;
 using DiscordControlCenter.Core.Bots;
 using DiscordControlCenter.Core.Explorer;
+using DiscordControlCenter.Core.Operations;
 using Microsoft.Extensions.Logging;
 
 namespace DiscordControlCenter.Discord;
@@ -274,6 +276,323 @@ public sealed class DiscordBotClient : IDiscordBotClient
             gate.Release();
         }
     }
+
+    public Task<ChannelWriteOutcome> CreateCategoryAsync(
+        ulong serverId,
+        ChannelOperationStateSnapshot after,
+        string? auditReason,
+        CancellationToken cancellationToken) =>
+        ExecuteWriteAsync(
+            async () =>
+            {
+                var guild = GetWritableGuild(serverId);
+                var channel = await ((IGuild)guild)
+                    .CreateCategoryAsync(
+                        after.Name,
+                        properties =>
+                        {
+                            ApplyCommonCreateProperties(properties, after);
+                            ApplyPermissionOverwrites(properties, after.PermissionOverwrites);
+                        },
+                        CreateRequestOptions(auditReason, cancellationToken))
+                    .ConfigureAwait(false);
+                return channel.Id;
+            },
+            cancellationToken);
+
+    public Task<ChannelWriteOutcome> CreateTextChannelAsync(
+        ulong serverId,
+        ChannelOperationStateSnapshot after,
+        string? auditReason,
+        CancellationToken cancellationToken) =>
+        ExecuteWriteAsync(
+            async () =>
+            {
+                var guild = GetWritableGuild(serverId);
+                var channel = await guild
+                    .CreateTextChannelAsync(
+                        after.Name,
+                        properties =>
+                        {
+                            ApplyCommonCreateProperties(properties, after);
+                            ApplyPermissionOverwrites(properties, after.PermissionOverwrites);
+                            if (after.Topic is not null)
+                            {
+                                properties.Topic = after.Topic;
+                            }
+
+                            if (after.IsNsfw is bool isNsfw)
+                            {
+                                properties.IsNsfw = isNsfw;
+                            }
+
+                            if (after.SlowModeSeconds is int slowMode)
+                            {
+                                properties.SlowModeInterval = slowMode;
+                            }
+
+                            if (ToArchiveDuration(after.DefaultAutoArchiveMinutes)
+                                is ThreadArchiveDuration archiveDuration)
+                            {
+                                properties.AutoArchiveDuration = archiveDuration;
+                            }
+                        },
+                        CreateRequestOptions(auditReason, cancellationToken))
+                    .ConfigureAwait(false);
+                return channel.Id;
+            },
+            cancellationToken);
+
+    public Task<ChannelWriteOutcome> CreateVoiceChannelAsync(
+        ulong serverId,
+        ChannelOperationStateSnapshot after,
+        string? auditReason,
+        CancellationToken cancellationToken) =>
+        ExecuteWriteAsync(
+            async () =>
+            {
+                var guild = GetWritableGuild(serverId);
+                var channel = await guild
+                    .CreateVoiceChannelAsync(
+                        after.Name,
+                        properties =>
+                        {
+                            ApplyCommonCreateProperties(properties, after);
+                            ApplyPermissionOverwrites(properties, after.PermissionOverwrites);
+                            if (after.Bitrate is int bitrate)
+                            {
+                                properties.Bitrate = bitrate;
+                            }
+
+                            if (after.UserLimit is int userLimit)
+                            {
+                                properties.UserLimit = userLimit;
+                            }
+
+                            if (after.RegionOverride is not null)
+                            {
+                                properties.RTCRegion = after.RegionOverride;
+                            }
+                        },
+                        CreateRequestOptions(auditReason, cancellationToken))
+                    .ConfigureAwait(false);
+                return channel.Id;
+            },
+            cancellationToken);
+
+    public Task<ChannelWriteOutcome> ModifyChannelAsync(
+        ulong serverId,
+        ulong channelId,
+        ChannelOperationStateSnapshot before,
+        ChannelOperationStateSnapshot after,
+        string? auditReason,
+        CancellationToken cancellationToken) =>
+        ExecuteWriteAsync(
+            async () =>
+            {
+                var guild = GetWritableGuild(serverId);
+                var channel = guild.GetChannel(channelId)
+                    ?? throw new ChannelWriteValidationException(
+                        "TARGET_NOT_FOUND",
+                        "The target channel no longer exists.");
+                var options = CreateRequestOptions(auditReason, cancellationToken);
+                switch (channel)
+                {
+                    case SocketTextChannel textChannel when after.Kind == ChannelKind.Text:
+                        await textChannel
+                            .ModifyAsync(
+                                properties =>
+                                {
+                                    ApplyCommonModifiedProperties(properties, before, after);
+                                    if (before.Topic != after.Topic)
+                                    {
+                                        properties.Topic = after.Topic;
+                                    }
+
+                                    if (before.IsNsfw != after.IsNsfw && after.IsNsfw is bool isNsfw)
+                                    {
+                                        properties.IsNsfw = isNsfw;
+                                    }
+
+                                    if (before.SlowModeSeconds != after.SlowModeSeconds
+                                        && after.SlowModeSeconds is int slowMode)
+                                    {
+                                        properties.SlowModeInterval = slowMode;
+                                    }
+
+                                    if (before.DefaultAutoArchiveMinutes != after.DefaultAutoArchiveMinutes
+                                        && ToArchiveDuration(after.DefaultAutoArchiveMinutes)
+                                            is ThreadArchiveDuration archiveDuration)
+                                    {
+                                        properties.AutoArchiveDuration = archiveDuration;
+                                    }
+                                },
+                                options)
+                            .ConfigureAwait(false);
+                        break;
+                    case SocketVoiceChannel voiceChannel when after.Kind == ChannelKind.Voice:
+                        await voiceChannel
+                            .ModifyAsync(
+                                properties =>
+                                {
+                                    ApplyCommonModifiedProperties(properties, before, after);
+                                    if (before.Bitrate != after.Bitrate && after.Bitrate is int bitrate)
+                                    {
+                                        properties.Bitrate = bitrate;
+                                    }
+
+                                    if (before.UserLimit != after.UserLimit && after.UserLimit is int userLimit)
+                                    {
+                                        properties.UserLimit = userLimit;
+                                    }
+
+                                    if (before.RegionOverride != after.RegionOverride)
+                                    {
+                                        properties.RTCRegion = after.RegionOverride;
+                                    }
+                                },
+                                options)
+                            .ConfigureAwait(false);
+                        break;
+                    case SocketCategoryChannel categoryChannel when after.Kind == ChannelKind.Category:
+                        await categoryChannel
+                            .ModifyAsync(
+                                properties => ApplyCommonModifiedProperties(properties, before, after),
+                                options)
+                            .ConfigureAwait(false);
+                        break;
+                    default:
+                        throw new ChannelWriteValidationException(
+                            "CHANNEL_TYPE_UNSUPPORTED",
+                            "The target channel type changed or is unsupported.");
+                }
+
+                return channelId;
+            },
+            cancellationToken);
+
+    public Task<ChannelWriteOutcome> ReorderChannelsAsync(
+        ulong serverId,
+        IReadOnlyList<ChannelPositionUpdate> positions,
+        string? auditReason,
+        CancellationToken cancellationToken) =>
+        ExecuteWriteAsync(
+            async () =>
+            {
+                var guild = GetWritableGuild(serverId);
+                await guild
+                    .ReorderChannelsAsync(
+                        positions.Select(position =>
+                            new ReorderChannelProperties(position.ChannelId, position.Position)),
+                        CreateRequestOptions(auditReason, cancellationToken))
+                    .ConfigureAwait(false);
+                return (ulong?)null;
+            },
+            cancellationToken);
+
+    public Task<ChannelWriteOutcome> SetPermissionOverwriteAsync(
+        ulong serverId,
+        ulong channelId,
+        ChannelPermissionOverwriteSnapshot overwrite,
+        string? auditReason,
+        CancellationToken cancellationToken) =>
+        ExecuteWriteAsync(
+            async () =>
+            {
+                var guild = GetWritableGuild(serverId);
+                var channel = guild.GetChannel(channelId)
+                    ?? throw new ChannelWriteValidationException(
+                        "TARGET_NOT_FOUND",
+                        "The target channel no longer exists.");
+                var permissions = new OverwritePermissions(
+                    overwrite.AllowedRaw,
+                    overwrite.DeniedRaw);
+                var options = CreateRequestOptions(auditReason, cancellationToken);
+                if (overwrite.TargetType == PermissionTargetKind.Role)
+                {
+                    var role = guild.GetRole(overwrite.TargetId)
+                        ?? throw new ChannelWriteValidationException(
+                            "OVERWRITE_ROLE_MISSING",
+                            "The target overwrite role no longer exists.");
+                    await channel.AddPermissionOverwriteAsync(role, permissions, options)
+                        .ConfigureAwait(false);
+                }
+                else
+                {
+                    var user = guild.GetUser(overwrite.TargetId)
+                        ?? await ((IGuild)guild)
+                            .GetUserAsync(overwrite.TargetId, CacheMode.AllowDownload, options)
+                            .ConfigureAwait(false)
+                        ?? throw new ChannelWriteValidationException(
+                            "OVERWRITE_MEMBER_MISSING",
+                            "The target overwrite member is unavailable.");
+                    await channel.AddPermissionOverwriteAsync(user, permissions, options)
+                        .ConfigureAwait(false);
+                }
+
+                return channelId;
+            },
+            cancellationToken);
+
+    public Task<ChannelWriteOutcome> DeletePermissionOverwriteAsync(
+        ulong serverId,
+        ulong channelId,
+        ulong targetId,
+        PermissionTargetKind targetType,
+        string? auditReason,
+        CancellationToken cancellationToken) =>
+        ExecuteWriteAsync(
+            async () =>
+            {
+                var guild = GetWritableGuild(serverId);
+                var channel = guild.GetChannel(channelId)
+                    ?? throw new ChannelWriteValidationException(
+                        "TARGET_NOT_FOUND",
+                        "The target channel no longer exists.");
+                var options = CreateRequestOptions(auditReason, cancellationToken);
+                if (targetType == PermissionTargetKind.Role)
+                {
+                    var role = guild.GetRole(targetId)
+                        ?? throw new ChannelWriteValidationException(
+                            "OVERWRITE_ROLE_MISSING",
+                            "The target overwrite role no longer exists.");
+                    await channel.RemovePermissionOverwriteAsync(role, options).ConfigureAwait(false);
+                }
+                else
+                {
+                    var user = guild.GetUser(targetId)
+                        ?? await ((IGuild)guild)
+                            .GetUserAsync(targetId, CacheMode.AllowDownload, options)
+                            .ConfigureAwait(false)
+                        ?? throw new ChannelWriteValidationException(
+                            "OVERWRITE_MEMBER_MISSING",
+                            "The target overwrite member is unavailable.");
+                    await channel.RemovePermissionOverwriteAsync(user, options).ConfigureAwait(false);
+                }
+
+                return channelId;
+            },
+            cancellationToken);
+
+    public Task<ChannelWriteOutcome> DeleteChannelAsync(
+        ulong serverId,
+        ulong channelId,
+        string? auditReason,
+        CancellationToken cancellationToken) =>
+        ExecuteWriteAsync(
+            async () =>
+            {
+                var guild = GetWritableGuild(serverId);
+                var channel = guild.GetChannel(channelId)
+                    ?? throw new ChannelWriteValidationException(
+                        "TARGET_NOT_FOUND",
+                        "The target channel no longer exists.");
+                await channel
+                    .DeleteAsync(CreateRequestOptions(auditReason, cancellationToken))
+                    .ConfigureAwait(false);
+                return channelId;
+            },
+            cancellationToken);
 
     public async ValueTask DisposeAsync()
     {
@@ -883,6 +1202,233 @@ public sealed class DiscordBotClient : IDiscordBotClient
         StatusChanged?.Invoke(this, snapshot);
     }
 
+    private SocketGuild GetWritableGuild(ulong serverId)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        if (Snapshot.State != BotConnectionState.Connected)
+        {
+            throw new ChannelWriteValidationException(
+                "BOT_DISCONNECTED",
+                "The selected bot is not connected.");
+        }
+
+        return _client.GetGuild(serverId)
+            ?? throw new ChannelWriteValidationException(
+                "SERVER_UNAVAILABLE",
+                "The selected server is unavailable.");
+    }
+
+    private static RequestOptions CreateRequestOptions(
+        string? auditReason,
+        CancellationToken cancellationToken) =>
+        new()
+        {
+            AuditLogReason = AuditReasonSanitizer.Sanitize(auditReason),
+            CancelToken = cancellationToken,
+            RetryMode = RetryMode.AlwaysRetry
+        };
+
+    private static void ApplyCommonCreateProperties(
+        GuildChannelProperties properties,
+        ChannelOperationStateSnapshot after)
+    {
+        properties.Position = after.Position;
+        properties.CategoryId = after.ParentCategoryId;
+    }
+
+    private static void ApplyCommonModifiedProperties(
+        GuildChannelProperties properties,
+        ChannelOperationStateSnapshot before,
+        ChannelOperationStateSnapshot after)
+    {
+        if (!string.Equals(before.Name, after.Name, StringComparison.Ordinal))
+        {
+            properties.Name = after.Name;
+        }
+
+        if (before.Position != after.Position)
+        {
+            properties.Position = after.Position;
+        }
+
+        if (before.ParentCategoryId != after.ParentCategoryId)
+        {
+            properties.CategoryId = after.ParentCategoryId;
+        }
+    }
+
+    private static void ApplyPermissionOverwrites(
+        GuildChannelProperties properties,
+        IEnumerable<ChannelPermissionOverwriteSnapshot> overwrites)
+    {
+        var values = overwrites
+            .Select(
+                overwrite => new Overwrite(
+                    overwrite.TargetId,
+                    overwrite.TargetType == PermissionTargetKind.Role
+                        ? PermissionTarget.Role
+                        : PermissionTarget.User,
+                    new OverwritePermissions(overwrite.AllowedRaw, overwrite.DeniedRaw)))
+            .ToArray();
+        if (values.Length > 0)
+        {
+            properties.PermissionOverwrites = values;
+        }
+    }
+
+    private static ThreadArchiveDuration? ToArchiveDuration(int? minutes) =>
+        minutes switch
+        {
+            60 => ThreadArchiveDuration.OneHour,
+            1440 => ThreadArchiveDuration.OneDay,
+            4320 => ThreadArchiveDuration.ThreeDays,
+            10080 => ThreadArchiveDuration.OneWeek,
+            _ => null
+        };
+
+    private static async Task<ChannelWriteOutcome> ExecuteWriteAsync(
+        Func<Task<ulong?>> operation,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var resourceId = await operation().ConfigureAwait(false);
+            return new ChannelWriteOutcome(
+                true,
+                resourceId,
+                null,
+                OperationOutcomeCertainty.KnownSucceeded);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (ChannelWriteValidationException exception)
+        {
+            return KnownFailure(
+                OperationFailureKind.Validation,
+                exception.SafeCode,
+                exception.SafeMessage,
+                exception.GetType().Name,
+                retryable: false);
+        }
+        catch (RateLimitedException exception)
+        {
+            return KnownFailure(
+                OperationFailureKind.RateLimited,
+                "RATE_LIMIT_WAIT_FAILED",
+                "Discord.Net could not complete its rate-limit wait.",
+                exception.GetType().Name,
+                retryable: true);
+        }
+        catch (HttpException exception)
+        {
+            var status = (int)exception.HttpCode;
+            return status switch
+            {
+                400 => KnownFailure(
+                    OperationFailureKind.Validation,
+                    "DISCORD_INVALID_REQUEST",
+                    "Discord rejected one or more channel property values.",
+                    exception.GetType().Name,
+                    retryable: false),
+                401 or 403 => KnownFailure(
+                    OperationFailureKind.PermissionDenied,
+                    "DISCORD_PERMISSION_DENIED",
+                    "Discord rejected the request because the bot lacks permission.",
+                    exception.GetType().Name,
+                    retryable: false),
+                404 => KnownFailure(
+                    OperationFailureKind.TargetNotFound,
+                    "DISCORD_TARGET_NOT_FOUND",
+                    "Discord reports that the target no longer exists.",
+                    exception.GetType().Name,
+                    retryable: false),
+                429 => KnownFailure(
+                    OperationFailureKind.RateLimited,
+                    "DISCORD_RATE_LIMITED",
+                    "Discord.Net exhausted the allowed rate-limit wait.",
+                    exception.GetType().Name,
+                    retryable: true),
+                >= 500 => UncertainFailure(
+                    OperationFailureKind.Transport,
+                    "DISCORD_SERVER_ERROR_UNCERTAIN",
+                    "Discord returned a server error and the request outcome requires reconciliation.",
+                    exception.GetType().Name,
+                    retryable: true),
+                _ => KnownFailure(
+                    OperationFailureKind.DiscordRejected,
+                    "DISCORD_REQUEST_REJECTED",
+                    "Discord rejected the channel operation.",
+                    exception.GetType().Name,
+                    retryable: false)
+            };
+        }
+        catch (TimeoutException exception)
+        {
+            return UncertainFailure(
+                OperationFailureKind.UncertainOutcome,
+                "REQUEST_TIMEOUT_UNCERTAIN",
+                "The request timed out and its outcome requires reconciliation.",
+                exception.GetType().Name,
+                retryable: true);
+        }
+        catch (HttpRequestException exception)
+        {
+            return UncertainFailure(
+                OperationFailureKind.Transport,
+                "NETWORK_OUTCOME_UNCERTAIN",
+                "A network interruption left the request outcome uncertain.",
+                exception.GetType().Name,
+                retryable: true);
+        }
+        catch (Exception exception)
+        {
+            return KnownFailure(
+                OperationFailureKind.Internal,
+                "CHANNEL_WRITE_FAILED",
+                "The channel operation failed before a successful outcome was confirmed.",
+                exception.GetType().Name,
+                retryable: false);
+        }
+    }
+
+    private static ChannelWriteOutcome KnownFailure(
+        OperationFailureKind kind,
+        string code,
+        string message,
+        string exceptionType,
+        bool retryable) =>
+        new(
+            false,
+            null,
+            new OperationFailure(
+                kind,
+                code,
+                message,
+                exceptionType,
+                retryable,
+                OperationOutcomeCertainty.KnownFailed),
+            OperationOutcomeCertainty.KnownFailed);
+
+    private static ChannelWriteOutcome UncertainFailure(
+        OperationFailureKind kind,
+        string code,
+        string message,
+        string exceptionType,
+        bool retryable) =>
+        new(
+            false,
+            null,
+            new OperationFailure(
+                kind,
+                code,
+                message,
+                exceptionType,
+                retryable,
+                OperationOutcomeCertainty.Uncertain),
+            OperationOutcomeCertainty.Uncertain);
+
     private static readonly Action<ILogger, Guid, string, Exception?> GatewayDisconnectedLog =
         LoggerMessage.Define<Guid, string>(
             LogLevel.Warning,
@@ -933,4 +1479,12 @@ public sealed class DiscordBotClient : IDiscordBotClient
         ulong MemberId,
         MemberReadModel? Member,
         bool Removed);
+
+    private sealed class ChannelWriteValidationException(
+        string safeCode,
+        string safeMessage) : Exception
+    {
+        public string SafeCode { get; } = safeCode;
+        public string SafeMessage { get; } = safeMessage;
+    }
 }

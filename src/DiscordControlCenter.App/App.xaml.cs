@@ -5,12 +5,14 @@ using DiscordControlCenter.App.Services;
 using DiscordControlCenter.App.ViewModels;
 using DiscordControlCenter.Application.Bots;
 using DiscordControlCenter.Application.Explorer;
+using DiscordControlCenter.Application.Operations;
 using DiscordControlCenter.Application.Common;
 using DiscordControlCenter.Core.Auditing;
 using DiscordControlCenter.Core.Bots;
 using DiscordControlCenter.Core.Common;
 using DiscordControlCenter.Core.Persistence;
 using DiscordControlCenter.Core.Security;
+using DiscordControlCenter.Core.Operations;
 using DiscordControlCenter.Discord;
 using DiscordControlCenter.Infrastructure.Configuration;
 using DiscordControlCenter.Infrastructure.Persistence;
@@ -64,6 +66,8 @@ public partial class App : System.Windows.Application
                         services.AddSingleton<IDatabaseInitializer, SqliteDatabaseInitializer>();
                         services.AddSingleton<IBotProfileRepository, SqliteBotProfileRepository>();
                         services.AddSingleton<IAuditRepository, SqliteAuditRepository>();
+                        services.AddSingleton<IOperationHistoryRepository, SqliteOperationHistoryRepository>();
+                        services.AddSingleton<IOperationBackupRepository, SqliteOperationBackupRepository>();
                         services.AddSingleton<ITokenProtector, WindowsTokenProtector>();
                         services.AddSingleton<IDiscordTokenValidator, DiscordTokenValidator>();
                         services.AddSingleton<IDiscordBotClientFactory, DiscordBotClientFactory>();
@@ -72,10 +76,20 @@ public partial class App : System.Windows.Application
                             provider => provider.GetRequiredService<BotConnectionManager>());
                         services.AddSingleton<IBotExplorerService>(
                             provider => provider.GetRequiredService<BotConnectionManager>());
+                        services.AddSingleton<IDiscordChannelWriter>(
+                            provider => provider.GetRequiredService<BotConnectionManager>());
                         services.AddSingleton<IPermissionResolutionService, PermissionResolutionService>();
                         services.AddSingleton<IRoleHierarchySafetyService, RoleHierarchySafetyService>();
+                        services.AddSingleton<IChannelOperationPlanner, ChannelOperationPlanner>();
+                        services.AddSingleton<IChannelOperationPreflightService, ChannelOperationPreflightService>();
+                        services.AddSingleton<IOperationReconciliationService, ChannelOperationReconciliationService>();
+                        services.AddSingleton<IChannelOperationExecutor, ChannelOperationExecutor>();
+                        services.AddSingleton<ChannelOperationScheduler>();
+                        services.AddSingleton<IChannelOperationScheduler>(
+                            provider => provider.GetRequiredService<ChannelOperationScheduler>());
                         services.AddSingleton<IBotProfileService, BotProfileService>();
                         services.AddSingleton<IUserDialogService, WpfUserDialogService>();
+                        services.AddSingleton<IChannelOperationDialogService, ChannelOperationDialogService>();
                         services.AddSingleton<DashboardViewModel>();
                         services.AddSingleton<BotsViewModel>();
                         services.AddSingleton<ServersViewModel>();
@@ -84,6 +98,7 @@ public partial class App : System.Windows.Application
                         services.AddSingleton<RolesViewModel>();
                         services.AddSingleton<PermissionSimulatorViewModel>();
                         services.AddSingleton<VoiceViewModel>();
+                        services.AddSingleton<OperationCenterViewModel>();
                         services.AddSingleton<MainWindowViewModel>();
                         services.AddSingleton<MainWindow>();
                     })
@@ -95,6 +110,9 @@ public partial class App : System.Windows.Application
                 .InitializeAsync(CancellationToken.None);
             await _host.Services
                 .GetRequiredService<IBotConnectionManager>()
+                .InitializeAsync(CancellationToken.None);
+            await _host.Services
+                .GetRequiredService<IChannelOperationScheduler>()
                 .InitializeAsync(CancellationToken.None);
 
             var window = _host.Services.GetRequiredService<MainWindow>();

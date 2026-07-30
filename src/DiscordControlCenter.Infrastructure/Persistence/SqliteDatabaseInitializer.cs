@@ -7,7 +7,7 @@ public sealed class SqliteDatabaseInitializer(
     SqliteConnectionFactory connectionFactory,
     ILogger<SqliteDatabaseInitializer> logger) : IDatabaseInitializer
 {
-    private const int CurrentSchemaVersion = 2;
+    private const int CurrentSchemaVersion = 3;
 
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
@@ -100,6 +100,62 @@ public sealed class SqliteDatabaseInitializer(
                     ADD COLUMN EnableFullMemberAccess INTEGER NOT NULL DEFAULT 0;
                 """;
             await migrationCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await using (var operationMigrationCommand = connection.CreateCommand())
+        {
+            operationMigrationCommand.Transaction = transaction;
+            operationMigrationCommand.CommandText =
+                """
+                CREATE TABLE IF NOT EXISTS OperationHistory (
+                    OperationId TEXT NOT NULL PRIMARY KEY,
+                    CorrelationId TEXT NOT NULL,
+                    PlanType TEXT NOT NULL,
+                    BotProfileId TEXT NOT NULL,
+                    ServerId TEXT NOT NULL,
+                    ServerName TEXT NOT NULL,
+                    TargetIds TEXT NOT NULL,
+                    SafeDisplayNames TEXT NOT NULL,
+                    CreatedAt TEXT NOT NULL,
+                    StartedAt TEXT NULL,
+                    FinishedAt TEXT NULL,
+                    State TEXT NOT NULL,
+                    CompletedCount INTEGER NOT NULL,
+                    FailedCount INTEGER NOT NULL,
+                    CancelledCount INTEGER NOT NULL,
+                    CompensationSummary TEXT NOT NULL,
+                    BackupIdentifier TEXT NULL,
+                    SafeErrorCodes TEXT NULL,
+                    DurationMilliseconds INTEGER NOT NULL,
+                    AuditReason TEXT NULL,
+                    PlanJson TEXT NOT NULL,
+                    ResultJson TEXT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS IX_OperationHistory_CreatedAt
+                    ON OperationHistory (CreatedAt DESC);
+
+                CREATE INDEX IF NOT EXISTS IX_OperationHistory_BotServer
+                    ON OperationHistory (BotProfileId, ServerId, CreatedAt DESC);
+
+                CREATE TABLE IF NOT EXISTS OperationBackups (
+                    BackupIdentifier TEXT NOT NULL PRIMARY KEY,
+                    OperationId TEXT NOT NULL,
+                    CorrelationId TEXT NOT NULL,
+                    BotProfileId TEXT NOT NULL,
+                    ServerId TEXT NOT NULL,
+                    ServerName TEXT NOT NULL,
+                    ExplorerSequence INTEGER NOT NULL,
+                    CreatedAt TEXT NOT NULL,
+                    SnapshotJson TEXT NOT NULL
+                );
+
+                CREATE UNIQUE INDEX IF NOT EXISTS UX_OperationBackups_OperationId
+                    ON OperationBackups (OperationId);
+                """;
+            await operationMigrationCommand
+                .ExecuteNonQueryAsync(cancellationToken)
+                .ConfigureAwait(false);
         }
 
         await using (var versionCommand = connection.CreateCommand())

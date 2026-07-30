@@ -3,7 +3,7 @@ using DiscordControlCenter.Application.Explorer;
 
 namespace DiscordControlCenter.Application.Bots;
 
-public interface IDiscordBotClient : IAsyncDisposable
+public interface IDiscordBotClient : IAsyncDisposable, IDiscordChannelWriterClient
 {
     event EventHandler<BotConnectionSnapshot>? StatusChanged;
     event EventHandler<ExplorerCacheUpdate>? ExplorerChanged;
