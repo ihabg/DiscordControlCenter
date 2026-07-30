@@ -4,6 +4,7 @@ using System.Windows.Threading;
 using DiscordControlCenter.App.Services;
 using DiscordControlCenter.App.ViewModels;
 using DiscordControlCenter.Application.Bots;
+using DiscordControlCenter.Application.Explorer;
 using DiscordControlCenter.Application.Common;
 using DiscordControlCenter.Core.Auditing;
 using DiscordControlCenter.Core.Bots;
@@ -66,11 +67,18 @@ public partial class App : System.Windows.Application
                         services.AddSingleton<ITokenProtector, WindowsTokenProtector>();
                         services.AddSingleton<IDiscordTokenValidator, DiscordTokenValidator>();
                         services.AddSingleton<IDiscordBotClientFactory, DiscordBotClientFactory>();
-                        services.AddSingleton<IBotConnectionManager, BotConnectionManager>();
+                        services.AddSingleton<BotConnectionManager>();
+                        services.AddSingleton<IBotConnectionManager>(
+                            provider => provider.GetRequiredService<BotConnectionManager>());
+                        services.AddSingleton<IBotExplorerService>(
+                            provider => provider.GetRequiredService<BotConnectionManager>());
+                        services.AddSingleton<IPermissionResolutionService, PermissionResolutionService>();
                         services.AddSingleton<IBotProfileService, BotProfileService>();
                         services.AddSingleton<IUserDialogService, WpfUserDialogService>();
                         services.AddSingleton<DashboardViewModel>();
                         services.AddSingleton<BotsViewModel>();
+                        services.AddSingleton<ServersViewModel>();
+                        services.AddSingleton<ChannelsViewModel>();
                         services.AddSingleton<MainWindowViewModel>();
                         services.AddSingleton<MainWindow>();
                     })

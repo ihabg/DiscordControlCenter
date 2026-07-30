@@ -1,4 +1,5 @@
 using DiscordControlCenter.Application.Bots;
+using DiscordControlCenter.Application.Explorer;
 using DiscordControlCenter.Core.Bots;
 using DiscordControlCenter.Core.Security;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -52,6 +53,7 @@ public sealed class BotConnectionManagerTests
     private sealed class FakeClient(Guid id, bool shouldFail) : IDiscordBotClient
     {
         public event EventHandler<BotConnectionSnapshot>? StatusChanged;
+        public event EventHandler<ExplorerCacheUpdate>? ExplorerChanged;
 
         public BotConnectionSnapshot Snapshot { get; private set; } =
             BotConnectionSnapshot.Disconnected(id);
@@ -81,6 +83,19 @@ public sealed class BotConnectionManagerTests
             Snapshot = BotConnectionSnapshot.Disconnected(id);
             StatusChanged?.Invoke(this, Snapshot);
             return Task.CompletedTask;
+        }
+
+        public Task<ExplorerCacheUpdate> RefreshExplorerAsync(
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var update = ExplorerCacheUpdate.Reset(
+                id,
+                1,
+                [],
+                DateTimeOffset.UtcNow);
+            ExplorerChanged?.Invoke(this, update);
+            return Task.FromResult(update);
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;

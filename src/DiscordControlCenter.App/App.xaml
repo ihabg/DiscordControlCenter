@@ -14,12 +14,21 @@
             <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
             <converters:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter" />
             <converters:StateToBrushConverter x:Key="StateToBrushConverter" />
+            <converters:CachedImageConverter x:Key="CachedImageConverter" />
+            <converters:PermissionStatusToBrushConverter x:Key="PermissionStatusToBrushConverter" />
+            <converters:PermissionStatusToTextConverter x:Key="PermissionStatusToTextConverter" />
 
             <DataTemplate DataType="{x:Type vm:DashboardViewModel}">
                 <views:DashboardView />
             </DataTemplate>
             <DataTemplate DataType="{x:Type vm:BotsViewModel}">
                 <views:BotsView />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:ServersViewModel}">
+                <views:ServersView />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:ChannelsViewModel}">
+                <views:ChannelsView />
             </DataTemplate>
             <DataTemplate DataType="{x:Type vm:PlaceholderViewModel}">
                 <views:PlaceholderView />

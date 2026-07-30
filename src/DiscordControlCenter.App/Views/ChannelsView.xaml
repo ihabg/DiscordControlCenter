@@ -1,0 +1,386 @@
+<UserControl x:Class="DiscordControlCenter.App.Views.ChannelsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+             xmlns:vm="clr-namespace:DiscordControlCenter.App.ViewModels"
+             Background="{StaticResource ContentBackgroundBrush}">
+    <UserControl.Resources>
+        <Style x:Key="ExplorerTreeItemStyle" TargetType="TreeViewItem">
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+            <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+            <Setter Property="IsExpanded" Value="True" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocusVisualStyle}" />
+        </Style>
+        <Style x:Key="ChannelRowButtonStyle"
+               TargetType="Button"
+               BasedOn="{StaticResource NavigationButtonStyle}">
+            <Setter Property="Margin" Value="0,1,0,1" />
+            <Setter Property="Padding" Value="10,8" />
+            <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource SurfaceBrush}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                    <Setter Property="Background" Value="{StaticResource SelectionBackgroundBrush}" />
+                    <Setter Property="BorderBrush" Value="{StaticResource FocusBorderBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <HierarchicalDataTemplate DataType="{x:Type vm:ChannelGroupViewModel}"
+                                  ItemsSource="{Binding Channels}">
+            <Grid MinWidth="300" Margin="0,3,0,2">
+                <Button Command="{Binding DataContext.SelectChannelCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                        CommandParameter="{Binding Category}"
+                        Style="{StaticResource ChannelRowButtonStyle}"
+                        Visibility="{Binding HasCategory, Converter={StaticResource BooleanToVisibilityConverter}}"
+                        ToolTip="Inspect this category channel">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="24" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="C"
+                                   Foreground="{StaticResource AccentBrush}"
+                                   FontWeight="Bold"
+                                   VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="{Binding Category.Name}"
+                                       Style="{StaticResource BodyTextStyle}"
+                                       FontWeight="SemiBold"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding Category.IdText}"
+                                       Style="{StaticResource MutedTextStyle}"
+                                       FontSize="10" />
+                        </StackPanel>
+                    </Grid>
+                </Button>
+                <TextBlock Text="Uncategorized"
+                           Style="{StaticResource SectionHeadingStyle}"
+                           FontSize="13"
+                           Margin="10,8"
+                           Visibility="{Binding HasCategory, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+            </Grid>
+        </HierarchicalDataTemplate>
+        <DataTemplate DataType="{x:Type vm:ChannelItemViewModel}">
+            <Button Command="{Binding DataContext.SelectChannelCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                    CommandParameter="{Binding}"
+                    Style="{StaticResource ChannelRowButtonStyle}"
+                    ToolTip="{Binding PermissionSynchronizationText}"
+                    automation:AutomationProperties.Name="{Binding Name}">
+                <Grid MinWidth="280">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="25" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="{Binding TypeIndicator}"
+                               Foreground="{StaticResource AccentBrush}"
+                               FontWeight="Bold"
+                               VerticalAlignment="Center" />
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Text="{Binding Name}"
+                                   Style="{StaticResource BodyTextStyle}"
+                                   TextTrimming="CharacterEllipsis"
+                                   ToolTip="{Binding Name}" />
+                        <TextBlock Style="{StaticResource MutedTextStyle}"
+                                   FontSize="10"
+                                   TextTrimming="CharacterEllipsis">
+                            <Run Text="{Binding IdText, Mode=OneWay}" />
+                            <Run Text="  ·  pos " />
+                            <Run Text="{Binding PositionText, Mode=OneWay}" />
+                        </TextBlock>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Margin="8,0,0,0">
+                        <TextBlock Text="{Binding CanViewText}"
+                                   Style="{StaticResource MutedTextStyle}"
+                                   FontSize="10"
+                                   TextAlignment="Right" />
+                        <TextBlock Text="{Binding CanManageText}"
+                                   Style="{StaticResource MutedTextStyle}"
+                                   FontSize="10"
+                                   TextAlignment="Right" />
+                    </StackPanel>
+                </Grid>
+            </Button>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <Grid Margin="24,22">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="2*" MinWidth="330" />
+            <ColumnDefinition Width="12" />
+            <ColumnDefinition Width="3*" MinWidth="390" />
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.Column="0" Style="{StaticResource PanelSurfaceStyle}" Padding="0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Grid Margin="16,16,16,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="{Binding ServerName}"
+                                   Style="{StaticResource SectionHeadingStyle}"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="Categories and channels in Discord order"
+                                   Style="{StaticResource MutedTextStyle}"
+                                   Margin="0,3,0,0" />
+                    </StackPanel>
+                    <Button Grid.Column="1"
+                            Content="Refresh"
+                            Command="{Binding RefreshCommand}"
+                            Style="{StaticResource SecondaryButtonStyle}"
+                            Padding="12,7"
+                            VerticalAlignment="Top"
+                            ToolTip="Refresh the selected bot's server and channel cache"
+                            automation:AutomationProperties.Name="Refresh channel explorer" />
+                    <TextBox Grid.ColumnSpan="2"
+                             Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                             Tag="Search channel name or ID"
+                             Margin="0,54,0,0"
+                             ToolTip="Search channels while preserving their category hierarchy"
+                             automation:AutomationProperties.Name="Search channels" />
+                </Grid>
+
+                <TreeView Grid.Row="1"
+                          ItemsSource="{Binding ChannelGroups}"
+                          Background="{StaticResource SurfaceBrush}"
+                          BorderThickness="0"
+                          ItemContainerStyle="{StaticResource ExplorerTreeItemStyle}"
+                          ScrollViewer.CanContentScroll="True"
+                          VirtualizingPanel.IsVirtualizing="True"
+                          VirtualizingPanel.VirtualizationMode="Recycling"
+                          KeyboardNavigation.DirectionalNavigation="Contained"
+                          automation:AutomationProperties.Name="Channel hierarchy" />
+
+                <Border Grid.Row="1"
+                        Background="{StaticResource OverlayBackgroundBrush}"
+                        Visibility="{Binding HasChannels, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+                    <StackPanel HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                MaxWidth="300"
+                                Margin="24">
+                        <ProgressBar IsIndeterminate="True"
+                                     Width="150"
+                                     Height="4"
+                                     Margin="0,0,0,18"
+                                     Visibility="{Binding IsLoading, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        <TextBlock Text="{Binding StateTitle}"
+                                   Style="{StaticResource SectionHeadingStyle}"
+                                   TextAlignment="Center"
+                                   HorizontalAlignment="Center" />
+                        <TextBlock Text="{Binding StateMessage}"
+                                   Style="{StaticResource SecondaryTextStyle}"
+                                   TextWrapping="Wrap"
+                                   TextAlignment="Center"
+                                   Margin="0,8,0,0" />
+                        <Button Content="Retry"
+                                Command="{Binding RefreshCommand}"
+                                HorizontalAlignment="Center"
+                                Margin="0,16,0,0"
+                                Visibility="{Binding HasError, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                automation:AutomationProperties.Name="Retry loading channels" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+
+        <Border Grid.Column="2" Style="{StaticResource PanelSurfaceStyle}" Padding="0">
+            <Grid>
+                <StackPanel HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            MaxWidth="360">
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding SelectedChannel}" Value="{x:Null}">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+                    <TextBlock Text="Select a channel"
+                               Style="{StaticResource SectionHeadingStyle}"
+                               HorizontalAlignment="Center" />
+                    <TextBlock Text="Choose a category or channel to inspect metadata and effective bot permissions."
+                               Style="{StaticResource SecondaryTextStyle}"
+                               TextAlignment="Center"
+                               TextWrapping="Wrap"
+                               Margin="0,8,0,0" />
+                </StackPanel>
+
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <ScrollViewer.Style>
+                        <Style TargetType="ScrollViewer">
+                            <Setter Property="Visibility" Value="Visible" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding SelectedChannel}" Value="{x:Null}">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </ScrollViewer.Style>
+                    <StackPanel Margin="22">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="38" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Width="32" Height="32"
+                                    Background="{StaticResource SelectionBackgroundBrush}"
+                                    CornerRadius="7">
+                                <TextBlock Text="{Binding SelectedChannel.TypeIndicator}"
+                                           Foreground="{StaticResource TextPrimaryBrush}"
+                                           FontWeight="Bold"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" />
+                            </Border>
+                            <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                <TextBlock Text="{Binding SelectedChannel.Name}"
+                                           Style="{StaticResource PageHeadingStyle}"
+                                           FontSize="23"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTip="{Binding SelectedChannel.Name}" />
+                                <TextBlock Style="{StaticResource MutedTextStyle}">
+                                    <Run Text="{Binding SelectedChannel.TypeName, Mode=OneWay}" />
+                                    <Run Text="  ·  ID " />
+                                    <Run Text="{Binding SelectedChannel.IdText, Mode=OneWay}" />
+                                </TextBlock>
+                            </StackPanel>
+                        </Grid>
+
+                        <TextBlock Text="Common information"
+                                   Style="{StaticResource SectionHeadingStyle}"
+                                   Margin="0,22,0,12" />
+                        <UniformGrid Columns="2">
+                            <StackPanel Margin="0,0,12,14">
+                                <TextBlock Text="POSITION" Style="{StaticResource DetailLabelStyle}" />
+                                <TextBlock Text="{Binding SelectedChannel.PositionText}" Style="{StaticResource DetailValueStyle}" />
+                            </StackPanel>
+                            <StackPanel Margin="0,0,0,14">
+                                <TextBlock Text="PARENT CATEGORY" Style="{StaticResource DetailLabelStyle}" />
+                                <TextBlock Text="{Binding SelectedChannel.CategoryText}" Style="{StaticResource DetailValueStyle}" />
+                            </StackPanel>
+                            <StackPanel Margin="0,0,12,14">
+                                <TextBlock Text="CREATED" Style="{StaticResource DetailLabelStyle}" />
+                                <TextBlock Text="{Binding SelectedChannel.CreatedAtText}" Style="{StaticResource DetailValueStyle}" />
+                            </StackPanel>
+                            <StackPanel Margin="0,0,0,14">
+                                <TextBlock Text="OVERWRITES" Style="{StaticResource DetailLabelStyle}" />
+                                <TextBlock Text="{Binding SelectedChannel.PermissionSynchronizationText}" Style="{StaticResource DetailValueStyle}" />
+                            </StackPanel>
+                        </UniformGrid>
+
+                        <StackPanel Visibility="{Binding SelectedChannel.ShowsTextDetails, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <TextBlock Text="Text channel information"
+                                       Style="{StaticResource SectionHeadingStyle}"
+                                       Margin="0,8,0,12" />
+                            <StackPanel Margin="0,0,0,14">
+                                <TextBlock Text="TOPIC / GUIDELINES" Style="{StaticResource DetailLabelStyle}" />
+                                <TextBlock Text="{Binding SelectedChannel.TopicText}" Style="{StaticResource DetailValueStyle}" />
+                            </StackPanel>
+                            <UniformGrid Columns="3">
+                                <StackPanel Margin="0,0,12,14">
+                                    <TextBlock Text="NSFW" Style="{StaticResource DetailLabelStyle}" />
+                                    <TextBlock Text="{Binding SelectedChannel.NsfwText}" Style="{StaticResource DetailValueStyle}" />
+                                </StackPanel>
+                                <StackPanel Margin="0,0,12,14">
+                                    <TextBlock Text="SLOW MODE" Style="{StaticResource DetailLabelStyle}" />
+                                    <TextBlock Text="{Binding SelectedChannel.SlowModeText}" Style="{StaticResource DetailValueStyle}" />
+                                </StackPanel>
+                                <StackPanel Margin="0,0,0,14">
+                                    <TextBlock Text="AUTO ARCHIVE" Style="{StaticResource DetailLabelStyle}" />
+                                    <TextBlock Text="{Binding SelectedChannel.AutoArchiveText}" Style="{StaticResource DetailValueStyle}" />
+                                </StackPanel>
+                            </UniformGrid>
+                        </StackPanel>
+
+                        <StackPanel Visibility="{Binding SelectedChannel.ShowsVoiceDetails, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <TextBlock Text="Voice and stage information"
+                                       Style="{StaticResource SectionHeadingStyle}"
+                                       Margin="0,8,0,12" />
+                            <UniformGrid Columns="2">
+                                <StackPanel Margin="0,0,12,14">
+                                    <TextBlock Text="BITRATE" Style="{StaticResource DetailLabelStyle}" />
+                                    <TextBlock Text="{Binding SelectedChannel.BitrateText}" Style="{StaticResource DetailValueStyle}" />
+                                </StackPanel>
+                                <StackPanel Margin="0,0,0,14">
+                                    <TextBlock Text="USER LIMIT" Style="{StaticResource DetailLabelStyle}" />
+                                    <TextBlock Text="{Binding SelectedChannel.UserLimitText}" Style="{StaticResource DetailValueStyle}" />
+                                </StackPanel>
+                                <StackPanel Margin="0,0,12,14">
+                                    <TextBlock Text="REGION OVERRIDE" Style="{StaticResource DetailLabelStyle}" />
+                                    <TextBlock Text="{Binding SelectedChannel.RegionText}" Style="{StaticResource DetailValueStyle}" />
+                                </StackPanel>
+                                <StackPanel Margin="0,0,0,14">
+                                    <TextBlock Text="CONNECTED USERS" Style="{StaticResource DetailLabelStyle}" />
+                                    <TextBlock Text="{Binding SelectedChannel.ConnectedUsersText}" Style="{StaticResource DetailValueStyle}" />
+                                </StackPanel>
+                            </UniformGrid>
+                        </StackPanel>
+
+                        <StackPanel Visibility="{Binding SelectedChannel.ShowsForumDetails, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <TextBlock Text="Forum information"
+                                       Style="{StaticResource SectionHeadingStyle}"
+                                       Margin="0,8,0,12" />
+                            <StackPanel Margin="0,0,0,14">
+                                <TextBlock Text="AVAILABLE TAGS" Style="{StaticResource DetailLabelStyle}" />
+                                <TextBlock Text="{Binding SelectedChannel.AvailableTagsText}" Style="{StaticResource DetailValueStyle}" />
+                            </StackPanel>
+                            <UniformGrid Columns="3">
+                                <StackPanel Margin="0,0,12,14">
+                                    <TextBlock Text="DEFAULT REACTION" Style="{StaticResource DetailLabelStyle}" />
+                                    <TextBlock Text="{Binding SelectedChannel.DefaultReactionText}" Style="{StaticResource DetailValueStyle}" />
+                                </StackPanel>
+                                <StackPanel Margin="0,0,12,14">
+                                    <TextBlock Text="DEFAULT SORT" Style="{StaticResource DetailLabelStyle}" />
+                                    <TextBlock Text="{Binding SelectedChannel.DefaultSortOrderText}" Style="{StaticResource DetailValueStyle}" />
+                                </StackPanel>
+                                <StackPanel Margin="0,0,0,14">
+                                    <TextBlock Text="DEFAULT LAYOUT" Style="{StaticResource DetailLabelStyle}" />
+                                    <TextBlock Text="{Binding SelectedChannel.DefaultLayoutText}" Style="{StaticResource DetailValueStyle}" />
+                                </StackPanel>
+                            </UniformGrid>
+                        </StackPanel>
+
+                        <TextBlock Text="Effective bot permissions"
+                                   Style="{StaticResource SectionHeadingStyle}"
+                                   Margin="0,8,0,10" />
+                        <ItemsControl ItemsSource="{Binding SelectedChannel.Permissions}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="72" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="210" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{Binding Group}"
+                                                   Style="{StaticResource MutedTextStyle}"
+                                                   FontSize="11" />
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding Name}"
+                                                   Style="{StaticResource BodyTextStyle}" />
+                                        <TextBlock Grid.Column="2"
+                                                   Text="{Binding Status, Converter={StaticResource PermissionStatusToTextConverter}}"
+                                                   Foreground="{Binding Status, Converter={StaticResource PermissionStatusToBrushConverter}}"
+                                                   TextAlignment="Right"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip="{Binding Source}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

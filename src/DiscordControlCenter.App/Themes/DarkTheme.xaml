@@ -442,4 +442,21 @@
         <Setter Property="CornerRadius" Value="10" />
         <Setter Property="Padding" Value="28" />
     </Style>
+
+    <Style x:Key="PanelSurfaceStyle" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Padding" Value="18" />
+    </Style>
+
+    <Style x:Key="DetailLabelStyle" TargetType="TextBlock" BasedOn="{StaticResource ToolbarLabelStyle}">
+        <Setter Property="Margin" Value="0,0,0,3" />
+    </Style>
+
+    <Style x:Key="DetailValueStyle" TargetType="TextBlock" BasedOn="{StaticResource BodyTextStyle}">
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
 </ResourceDictionary>

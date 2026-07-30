@@ -149,11 +149,34 @@
 
                     <StackPanel Grid.Column="3" Margin="7,0">
                         <TextBlock Text="SERVER" Style="{StaticResource ToolbarLabelStyle}" />
-                        <ComboBox IsEnabled="False"
-                                  SelectedIndex="0"
-                                  ToolTip="No servers are available until Server Explorer is implemented"
+                        <ComboBox ItemsSource="{Binding ToolbarServers}"
+                                  SelectedItem="{Binding SelectedServer}"
+                                  IsEnabled="{Binding CanBrowseServers}"
+                                  Tag="No server available"
+                                  ToolTip="Select a server belonging to the selected connected bot"
                                   automation:AutomationProperties.Name="Select server">
-                            <ComboBoxItem Content="No servers available" />
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ToolTip="{Binding AvailabilityText}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="26" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border Width="22" Height="22"
+                                                Background="{StaticResource ElevatedSurfaceBrush}"
+                                                CornerRadius="11">
+                                            <Image Source="{Binding IconUrl, Converter={StaticResource CachedImageConverter}}"
+                                                   Width="22" Height="22" Stretch="UniformToFill" />
+                                        </Border>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding Name}"
+                                                   Foreground="{StaticResource TextPrimaryBrush}"
+                                                   Margin="7,0,0,0"
+                                                   VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
                         </ComboBox>
                     </StackPanel>
 

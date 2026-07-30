@@ -1,6 +1,8 @@
+using System.Collections.Concurrent;
 using Discord;
 using Discord.WebSocket;
 using DiscordControlCenter.Application.Bots;
+using DiscordControlCenter.Application.Explorer;
 using DiscordControlCenter.Core.Bots;
 using Microsoft.Extensions.Logging;
 
@@ -12,11 +14,15 @@ public sealed class DiscordBotClient : IDiscordBotClient
     private readonly DiscordSocketClient _client;
     private readonly ILogger<DiscordBotClient> _logger;
     private readonly object _snapshotLock = new();
+    private readonly object _explorerBuildLock = new();
+    private readonly CancellationTokenSource _lifetimeCancellation = new();
+    private readonly ConcurrentDictionary<ulong, CancellationTokenSource> _voiceUpdateDebounce = new();
     private TaskCompletionSource _ready =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private BotConnectionSnapshot _snapshot;
     private int _manualStop;
     private int _disposed;
+    private long _explorerSequence;
 
     public DiscordBotClient(Guid botProfileId, ILogger<DiscordBotClient> logger)
     {
@@ -26,7 +32,7 @@ public sealed class DiscordBotClient : IDiscordBotClient
         _client = new DiscordSocketClient(
             new DiscordSocketConfig
             {
-                GatewayIntents = GatewayIntents.Guilds,
+                GatewayIntents = GatewayIntents.Guilds | GatewayIntents.GuildVoiceStates,
                 AlwaysDownloadUsers = false,
                 LogGatewayIntentWarnings = true,
                 MessageCacheSize = 0
@@ -38,10 +44,21 @@ public sealed class DiscordBotClient : IDiscordBotClient
         _client.LatencyUpdated += HandleLatencyUpdatedAsync;
         _client.GuildAvailable += HandleGuildChangedAsync;
         _client.GuildUnavailable += HandleGuildChangedAsync;
+        _client.JoinedGuild += HandleGuildChangedAsync;
+        _client.LeftGuild += HandleLeftGuildAsync;
+        _client.GuildUpdated += HandleGuildUpdatedAsync;
+        _client.ChannelCreated += HandleChannelCreatedAsync;
+        _client.ChannelUpdated += HandleChannelUpdatedAsync;
+        _client.ChannelDestroyed += HandleChannelDestroyedAsync;
+        _client.RoleCreated += HandleRoleCreatedAsync;
+        _client.RoleUpdated += HandleRoleUpdatedAsync;
+        _client.RoleDeleted += HandleRoleDeletedAsync;
+        _client.UserVoiceStateUpdated += HandleVoiceStateUpdatedAsync;
         _client.Log += HandleLogAsync;
     }
 
     public event EventHandler<BotConnectionSnapshot>? StatusChanged;
+    public event EventHandler<ExplorerCacheUpdate>? ExplorerChanged;
 
     public BotConnectionSnapshot Snapshot
     {
@@ -93,9 +110,22 @@ public sealed class DiscordBotClient : IDiscordBotClient
         }
 
         Interlocked.Exchange(ref _manualStop, 1);
+        _lifetimeCancellation.Cancel();
         Publish(Snapshot with { State = BotConnectionState.Disconnecting, ErrorMessage = null });
         await StopCoreAsync(cancellationToken).ConfigureAwait(false);
         Publish(BotConnectionSnapshot.Disconnected(_botProfileId));
+    }
+
+    public Task<ExplorerCacheUpdate> RefreshExplorerAsync(CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        return Task.Run(
+            () =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return BuildResetUpdate();
+            },
+            cancellationToken);
     }
 
     public async ValueTask DisposeAsync()
@@ -106,18 +136,30 @@ public sealed class DiscordBotClient : IDiscordBotClient
         }
 
         Interlocked.Exchange(ref _manualStop, 1);
+        _lifetimeCancellation.Cancel();
         _client.Ready -= HandleReadyAsync;
         _client.Connected -= HandleConnectedAsync;
         _client.Disconnected -= HandleDisconnectedAsync;
         _client.LatencyUpdated -= HandleLatencyUpdatedAsync;
         _client.GuildAvailable -= HandleGuildChangedAsync;
         _client.GuildUnavailable -= HandleGuildChangedAsync;
+        _client.JoinedGuild -= HandleGuildChangedAsync;
+        _client.LeftGuild -= HandleLeftGuildAsync;
+        _client.GuildUpdated -= HandleGuildUpdatedAsync;
+        _client.ChannelCreated -= HandleChannelCreatedAsync;
+        _client.ChannelUpdated -= HandleChannelUpdatedAsync;
+        _client.ChannelDestroyed -= HandleChannelDestroyedAsync;
+        _client.RoleCreated -= HandleRoleCreatedAsync;
+        _client.RoleUpdated -= HandleRoleUpdatedAsync;
+        _client.RoleDeleted -= HandleRoleDeletedAsync;
+        _client.UserVoiceStateUpdated -= HandleVoiceStateUpdatedAsync;
         _client.Log -= HandleLogAsync;
         await StopCoreAsync(CancellationToken.None).ConfigureAwait(false);
         _client.Dispose();
+        _lifetimeCancellation.Dispose();
     }
 
-    private Task HandleReadyAsync()
+    private async Task HandleReadyAsync()
     {
         var currentUser = _client.CurrentUser;
         var identity = new BotIdentity(
@@ -133,18 +175,25 @@ public sealed class DiscordBotClient : IDiscordBotClient
             identity,
             now,
             null));
+        await PublishResetAsync().ConfigureAwait(false);
         _ready.TrySetResult();
-        return Task.CompletedTask;
     }
 
-    private Task HandleConnectedAsync()
+    private async Task HandleConnectedAsync()
     {
         if (Snapshot.State == BotConnectionState.Reconnecting)
         {
             Publish(Snapshot with { State = BotConnectionState.Connecting });
+            await PublishResetAsync().ConfigureAwait(false);
+            Publish(Snapshot with
+            {
+                State = BotConnectionState.Connected,
+                ServerCount = _client.Guilds.Count,
+                GatewayLatencyMilliseconds = _client.Latency,
+                LastConnectedAt = DateTimeOffset.UtcNow,
+                ErrorMessage = null
+            });
         }
-
-        return Task.CompletedTask;
     }
 
     private Task HandleDisconnectedAsync(Exception exception)
@@ -163,6 +212,11 @@ public sealed class DiscordBotClient : IDiscordBotClient
             GatewayDisconnectedLog(_logger, _botProfileId, exception.GetType().Name, null);
         }
 
+        PublishExplorer(
+            ExplorerCacheUpdate.Clear(
+                _botProfileId,
+                NextExplorerSequence(),
+                DateTimeOffset.UtcNow));
         return Task.CompletedTask;
     }
 
@@ -175,8 +229,73 @@ public sealed class DiscordBotClient : IDiscordBotClient
 
     private Task HandleGuildChangedAsync(SocketGuild guild)
     {
-        _ = guild;
         Publish(Snapshot with { ServerCount = _client.Guilds.Count });
+        PublishServer(guild);
+        return Task.CompletedTask;
+    }
+
+    private Task HandleLeftGuildAsync(SocketGuild guild)
+    {
+        Publish(Snapshot with { ServerCount = _client.Guilds.Count });
+        PublishExplorer(
+            ExplorerCacheUpdate.Remove(
+                _botProfileId,
+                NextExplorerSequence(),
+                guild.Id,
+                DateTimeOffset.UtcNow));
+        return Task.CompletedTask;
+    }
+
+    private Task HandleGuildUpdatedAsync(SocketGuild before, SocketGuild after)
+    {
+        _ = before;
+        PublishServer(after);
+        return Task.CompletedTask;
+    }
+
+    private Task HandleChannelCreatedAsync(SocketChannel channel) =>
+        PublishContainingGuildAsync(channel);
+
+    private Task HandleChannelUpdatedAsync(SocketChannel before, SocketChannel after)
+    {
+        _ = before;
+        return PublishContainingGuildAsync(after);
+    }
+
+    private Task HandleChannelDestroyedAsync(SocketChannel channel) =>
+        PublishContainingGuildAsync(channel);
+
+    private Task HandleRoleCreatedAsync(SocketRole role)
+    {
+        PublishServer(role.Guild);
+        return Task.CompletedTask;
+    }
+
+    private Task HandleRoleUpdatedAsync(SocketRole before, SocketRole after)
+    {
+        _ = before;
+        PublishServer(after.Guild);
+        return Task.CompletedTask;
+    }
+
+    private Task HandleRoleDeletedAsync(SocketRole role)
+    {
+        PublishServer(role.Guild);
+        return Task.CompletedTask;
+    }
+
+    private Task HandleVoiceStateUpdatedAsync(
+        SocketUser user,
+        SocketVoiceState before,
+        SocketVoiceState after)
+    {
+        _ = user;
+        var guildId = after.VoiceChannel?.Guild.Id ?? before.VoiceChannel?.Guild.Id;
+        if (guildId is ulong id)
+        {
+            QueueVoiceUpdate(id);
+        }
+
         return Task.CompletedTask;
     }
 
@@ -222,6 +341,137 @@ public sealed class DiscordBotClient : IDiscordBotClient
         }
     }
 
+    private Task PublishResetAsync() =>
+        Task.Run(
+            () =>
+            {
+                try
+                {
+                    PublishExplorer(BuildResetUpdate());
+                }
+                catch (Exception exception)
+                {
+                    PublishExplorerFault(exception);
+                }
+            });
+
+    private ExplorerCacheUpdate BuildResetUpdate()
+    {
+        lock (_explorerBuildLock)
+        {
+            var now = DateTimeOffset.UtcNow;
+            var servers = _client.Guilds
+                .Select(guild => DiscordExplorerTranslator.TranslateServer(guild, now))
+                .ToArray();
+            return ExplorerCacheUpdate.Reset(
+                _botProfileId,
+                NextExplorerSequence(),
+                servers,
+                now);
+        }
+    }
+
+    private Task PublishContainingGuildAsync(SocketChannel channel)
+    {
+        if (channel is SocketGuildChannel guildChannel)
+        {
+            var guild = _client.GetGuild(guildChannel.Guild.Id);
+            if (guild is not null)
+            {
+                PublishServer(guild);
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private void PublishServer(SocketGuild guild)
+    {
+        if (Volatile.Read(ref _manualStop) != 0 || Volatile.Read(ref _disposed) != 0)
+        {
+            return;
+        }
+
+        try
+        {
+            lock (_explorerBuildLock)
+            {
+                var now = DateTimeOffset.UtcNow;
+                var server = DiscordExplorerTranslator.TranslateServer(guild, now);
+                PublishExplorer(
+                    ExplorerCacheUpdate.Upsert(
+                        _botProfileId,
+                        NextExplorerSequence(),
+                        server,
+                        now));
+            }
+        }
+        catch (Exception exception)
+        {
+            PublishExplorerFault(exception);
+        }
+    }
+
+    private void QueueVoiceUpdate(ulong guildId)
+    {
+        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            _lifetimeCancellation.Token);
+        _voiceUpdateDebounce.AddOrUpdate(
+            guildId,
+            cancellation,
+            (_, existing) =>
+            {
+                existing.Cancel();
+                existing.Dispose();
+                return cancellation;
+            });
+        _ = PublishDebouncedVoiceUpdateAsync(guildId, cancellation);
+    }
+
+    private async Task PublishDebouncedVoiceUpdateAsync(
+        ulong guildId,
+        CancellationTokenSource cancellation)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(250), cancellation.Token)
+                .ConfigureAwait(false);
+            var guild = _client.GetGuild(guildId);
+            if (guild is not null)
+            {
+                PublishServer(guild);
+            }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            if (_voiceUpdateDebounce.TryGetValue(guildId, out var current)
+                && ReferenceEquals(current, cancellation))
+            {
+                _voiceUpdateDebounce.TryRemove(guildId, out _);
+                cancellation.Dispose();
+            }
+        }
+    }
+
+    private void PublishExplorerFault(Exception exception)
+    {
+        ExplorerUpdateFailedLog(_logger, _botProfileId, exception.GetType().Name, null);
+        PublishExplorer(
+            ExplorerCacheUpdate.Fault(
+                _botProfileId,
+                NextExplorerSequence(),
+                "Discord server information could not be updated.",
+                DateTimeOffset.UtcNow));
+    }
+
+    private long NextExplorerSequence() => Interlocked.Increment(ref _explorerSequence);
+
+    private void PublishExplorer(ExplorerCacheUpdate update) =>
+        ExplorerChanged?.Invoke(this, update);
+
     private void Publish(BotConnectionSnapshot snapshot)
     {
         lock (_snapshotLock)
@@ -237,6 +487,12 @@ public sealed class DiscordBotClient : IDiscordBotClient
             LogLevel.Warning,
             new EventId(3101, nameof(GatewayDisconnectedLog)),
             "Gateway for bot {BotProfileId} disconnected with {ExceptionType}; reconnecting");
+
+    private static readonly Action<ILogger, Guid, string, Exception?> ExplorerUpdateFailedLog =
+        LoggerMessage.Define<Guid, string>(
+            LogLevel.Warning,
+            new EventId(3102, nameof(ExplorerUpdateFailedLog)),
+            "Explorer cache translation for bot {BotProfileId} failed with {ExceptionType}");
 
     private static readonly Action<ILogger, string, string, string, Exception?> DiscordCriticalLog =
         CreateDiscordLog(LogLevel.Critical, 3110, nameof(DiscordCriticalLog));
