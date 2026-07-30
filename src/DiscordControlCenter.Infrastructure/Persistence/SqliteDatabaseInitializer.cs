@@ -1,4 +1,6 @@
 using DiscordControlCenter.Core.Persistence;
+using DiscordControlCenter.Core.Explorer;
+using DiscordControlCenter.Core.Operations;
 using Microsoft.Extensions.Logging;
 
 namespace DiscordControlCenter.Infrastructure.Persistence;
@@ -7,7 +9,7 @@ public sealed class SqliteDatabaseInitializer(
     SqliteConnectionFactory connectionFactory,
     ILogger<SqliteDatabaseInitializer> logger) : IDatabaseInitializer
 {
-    private const int CurrentSchemaVersion = 3;
+    private const int CurrentSchemaVersion = 4;
 
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
@@ -158,11 +160,104 @@ public sealed class SqliteDatabaseInitializer(
                 .ConfigureAwait(false);
         }
 
+        await using (var recoveryMigrationCommand = connection.CreateCommand())
+        {
+            recoveryMigrationCommand.Transaction = transaction;
+            recoveryMigrationCommand.CommandText =
+                """
+                CREATE TABLE IF NOT EXISTS BackupCatalogMetadata (
+                    BackupIdentifier TEXT NOT NULL PRIMARY KEY,
+                    BackupReason TEXT NOT NULL,
+                    SourceOperationType TEXT NOT NULL,
+                    CategoryCount INTEGER NOT NULL,
+                    ChannelCount INTEGER NOT NULL,
+                    PermissionOverwriteCount INTEGER NOT NULL,
+                    SchemaVersion INTEGER NOT NULL,
+                    IsPinned INTEGER NOT NULL,
+                    SizeBytes INTEGER NOT NULL,
+                    IsCorrupt INTEGER NOT NULL,
+                    SafeIssue TEXT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS IX_BackupCatalog_ServerCreated
+                    ON OperationBackups (ServerId, CreatedAt DESC);
+
+                CREATE INDEX IF NOT EXISTS IX_BackupCatalog_BotCreated
+                    ON OperationBackups (BotProfileId, CreatedAt DESC);
+
+                CREATE TABLE IF NOT EXISTS BackupRetentionSettings (
+                    Id INTEGER NOT NULL PRIMARY KEY CHECK (Id = 1),
+                    KeepIndefinitely INTEGER NOT NULL,
+                    MaximumAgeDays INTEGER NULL,
+                    NewestPerServer INTEGER NULL,
+                    PreserveFailedOperationBackups INTEGER NOT NULL,
+                    MaximumStorageBytes INTEGER NULL,
+                    UpdatedAt TEXT NOT NULL
+                );
+
+                INSERT OR IGNORE INTO BackupRetentionSettings
+                    (Id, KeepIndefinitely, MaximumAgeDays, NewestPerServer,
+                     PreserveFailedOperationBackups, MaximumStorageBytes, UpdatedAt)
+                VALUES (1, 1, NULL, NULL, 1, NULL, $phase4bAppliedAt);
+
+                CREATE TABLE IF NOT EXISTS OperationStateTransitions (
+                    Id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                    OperationId TEXT NOT NULL,
+                    State TEXT NOT NULL,
+                    Timestamp TEXT NOT NULL,
+                    ReasonCode TEXT NOT NULL,
+                    SafeSummary TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS IX_OperationTransitions_OperationTime
+                    ON OperationStateTransitions (OperationId, Timestamp);
+
+                CREATE TABLE IF NOT EXISTS ManualReconciliationDecisions (
+                    Id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                    OperationId TEXT NOT NULL,
+                    CorrelationId TEXT NOT NULL,
+                    StepId TEXT NOT NULL,
+                    Resolution TEXT NOT NULL,
+                    Timestamp TEXT NOT NULL,
+                    SafeExplanation TEXT NOT NULL,
+                    RelevantResourceIds TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS IX_ManualReconciliation_OperationTime
+                    ON ManualReconciliationDecisions (OperationId, Timestamp);
+
+                CREATE TABLE IF NOT EXISTS BackupCleanupAudit (
+                    Id TEXT NOT NULL PRIMARY KEY,
+                    Timestamp TEXT NOT NULL,
+                    BackupIdentifiers TEXT NOT NULL,
+                    DeletedCount INTEGER NOT NULL,
+                    ReclaimedBytes INTEGER NOT NULL,
+                    SafeReason TEXT NOT NULL
+                );
+                """;
+            recoveryMigrationCommand.Parameters.AddWithValue(
+                "$phase4bAppliedAt",
+                DateTimeOffset.UtcNow.ToString("O"));
+            await recoveryMigrationCommand
+                .ExecuteNonQueryAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        await BackfillBackupCatalogAsync(
+                connection,
+                transaction,
+                cancellationToken)
+            .ConfigureAwait(false);
+
         await using (var versionCommand = connection.CreateCommand())
         {
             versionCommand.Transaction = transaction;
             versionCommand.CommandText =
                 """
+                INSERT OR IGNORE INTO SchemaVersions (Version, AppliedAt)
+                    VALUES (2, $appliedAt);
+                INSERT OR IGNORE INTO SchemaVersions (Version, AppliedAt)
+                    VALUES (3, $appliedAt);
                 INSERT OR IGNORE INTO SchemaVersions (Version, AppliedAt)
                     VALUES ($version, $appliedAt);
                 """;
@@ -173,6 +268,93 @@ public sealed class SqliteDatabaseInitializer(
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         DatabaseReadyLog(logger, CurrentSchemaVersion, null);
+    }
+
+    private static async Task BackfillBackupCatalogAsync(
+        Microsoft.Data.Sqlite.SqliteConnection connection,
+        Microsoft.Data.Sqlite.SqliteTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        var rows = new List<(string Identifier, string Json, string SourceType, long SizeBytes)>();
+        await using (var readCommand = connection.CreateCommand())
+        {
+            readCommand.Transaction = transaction;
+            readCommand.CommandText =
+                """
+                SELECT b.BackupIdentifier, b.SnapshotJson,
+                       COALESCE(h.PlanType, 'DeleteChannels'),
+                       length(CAST(b.SnapshotJson AS BLOB))
+                FROM OperationBackups b
+                LEFT JOIN OperationHistory h ON h.OperationId = b.OperationId
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM BackupCatalogMetadata m
+                    WHERE m.BackupIdentifier = b.BackupIdentifier);
+                """;
+            await using var reader = await readCommand
+                .ExecuteReaderAsync(cancellationToken)
+                .ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                rows.Add(
+                    (
+                        reader.GetString(0),
+                        reader.GetString(1),
+                        reader.GetString(2),
+                        reader.GetInt64(3)
+                    ));
+            }
+        }
+
+        foreach (var row in rows)
+        {
+            var categoryCount = 0;
+            var channelCount = 0;
+            var overwriteCount = 0;
+            var schemaVersion = 1;
+            var isCorrupt = false;
+            string? safeIssue = null;
+            try
+            {
+                var backup = OperationJson.Deserialize<ServerStructureBackup>(row.Json)
+                    ?? throw new InvalidDataException("Backup data is empty.");
+                categoryCount = backup.Channels.Count(channel => channel.Kind == ChannelKind.Category);
+                channelCount = backup.Channels.Length - categoryCount;
+                overwriteCount = backup.Channels.Sum(channel => channel.PermissionOverwrites.Length);
+                schemaVersion = backup.SchemaVersion;
+            }
+            catch (Exception exception) when (
+                exception is System.Text.Json.JsonException
+                    or InvalidDataException
+                    or NotSupportedException)
+            {
+                isCorrupt = true;
+                safeIssue = "The structural backup could not be parsed.";
+            }
+
+            await using var insertCommand = connection.CreateCommand();
+            insertCommand.Transaction = transaction;
+            insertCommand.CommandText =
+                """
+                INSERT OR IGNORE INTO BackupCatalogMetadata
+                    (BackupIdentifier, BackupReason, SourceOperationType, CategoryCount,
+                     ChannelCount, PermissionOverwriteCount, SchemaVersion, IsPinned,
+                     SizeBytes, IsCorrupt, SafeIssue)
+                VALUES
+                    ($identifier, $reason, $sourceType, $categoryCount, $channelCount,
+                     $overwriteCount, $schemaVersion, 0, $sizeBytes, $isCorrupt, $safeIssue);
+                """;
+            insertCommand.Parameters.AddWithValue("$identifier", row.Identifier);
+            insertCommand.Parameters.AddWithValue("$reason", "Pre-operation structural backup");
+            insertCommand.Parameters.AddWithValue("$sourceType", row.SourceType);
+            insertCommand.Parameters.AddWithValue("$categoryCount", categoryCount);
+            insertCommand.Parameters.AddWithValue("$channelCount", channelCount);
+            insertCommand.Parameters.AddWithValue("$overwriteCount", overwriteCount);
+            insertCommand.Parameters.AddWithValue("$schemaVersion", schemaVersion);
+            insertCommand.Parameters.AddWithValue("$sizeBytes", row.SizeBytes);
+            insertCommand.Parameters.AddWithValue("$isCorrupt", isCorrupt ? 1 : 0);
+            insertCommand.Parameters.AddWithValue("$safeIssue", safeIssue ?? (object)DBNull.Value);
+            await insertCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private static readonly Action<ILogger, int, Exception?> DatabaseReadyLog =

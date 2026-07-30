@@ -20,6 +20,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private readonly PermissionSimulatorViewModel _permissionSimulator;
     private readonly VoiceViewModel _voice;
     private readonly OperationCenterViewModel _operations;
+    private readonly BackupBrowserViewModel _backups;
     private readonly IBotConnectionManager _connectionManager;
     private readonly IBotExplorerService _explorer;
     private readonly UiDispatcher _dispatcher;
@@ -40,6 +41,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         PermissionSimulatorViewModel permissionSimulator,
         VoiceViewModel voice,
         OperationCenterViewModel operations,
+        BackupBrowserViewModel backups,
         IBotConnectionManager connectionManager,
         IBotExplorerService explorer,
         UiDispatcher dispatcher)
@@ -53,6 +55,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         _permissionSimulator = permissionSimulator;
         _voice = voice;
         _operations = operations;
+        _backups = backups;
         _connectionManager = connectionManager;
         _explorer = explorer;
         _dispatcher = dispatcher;
@@ -112,6 +115,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             _roles.SetContext(value?.Id, _selectedConnectionState, null);
             _permissionSimulator.SetContext(value?.Id, _selectedConnectionState, null);
             _voice.SetContext(value?.Id, _selectedConnectionState, null);
+            _backups.SetContext(value?.Id, null, value?.DisplayName);
             OnPropertyChanged(nameof(CanBrowseServers));
         }
     }
@@ -137,6 +141,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             _roles.SetServer(value?.Id);
             _permissionSimulator.SetServer(value?.Id);
             _voice.SetServer(value?.Id);
+            _backups.SetContext(SelectedBot?.Id, value?.Id, SelectedBot?.DisplayName);
         }
     }
 
@@ -163,7 +168,9 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     {
         await Task.WhenAll(
             _bots.LoadAsync(cancellationToken),
-            _dashboard.LoadAsync(cancellationToken));
+            _dashboard.LoadAsync(cancellationToken),
+            _operations.InitializeAsync(cancellationToken),
+            _backups.InitializeAsync(cancellationToken));
     }
 
     public void Dispose()
@@ -183,6 +190,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         _permissionSimulator.Dispose();
         _voice.Dispose();
         _operations.Dispose();
+        _backups.Dispose();
         _bots.Dispose();
     }
 
@@ -201,6 +209,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             "Servers" => _servers,
             "Channels" => _channels,
             "Operations" => _operations,
+            "Backups" => _backups,
             "Members" => _members,
             "Roles" => _roles,
             "Permissions" => _permissionSimulator,

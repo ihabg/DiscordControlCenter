@@ -12,7 +12,10 @@ guarded channel-operations engine:
 - live Voice-State Inspector;
 - compact gateway and cache diagnostics;
 - immutable channel-operation planning, exact preview, explicit confirmation,
-  freshness preflight, bounded execution, reconciliation, and persisted results.
+  freshness preflight, bounded execution, reconciliation, and persisted results;
+- a paged Backup Browser, explicit replacement-structure planning, configurable local
+  retention, searchable operation history, safe export, and interrupted-operation
+  recovery.
 
 Channel creation, supported edits, bulk rename, move/reorder, structural cloning,
 lock/unlock presets, category permission synchronization, and guarded deletion are the
@@ -108,7 +111,10 @@ Supported operations:
   role, preserving every unrelated allow and deny bit;
 - replace selected child-channel overwrites with the exact parent-category set;
 - delete ordinary channels, delete a category only, or explicitly delete selected/all
-  supported children before their category.
+  supported children before their category;
+- create selected replacement categories, text channels, and voice channels from a
+  structural backup through the same immutable plan, preflight, confirmation, queue,
+  executor, checkpoint, and reconciliation path.
 
 Announcement, forum, media, stage, thread, and other channels remain inspectable but
 are blocked from destructive or structurally inaccurate Phase 4A plans.
@@ -124,10 +130,13 @@ requirement matches; Escape cancels. One plan cannot be submitted twice.
 
 The bounded scheduler has two workers and capacity for 32 queued plans. A semaphore
 serializes each bot/server stream, so no two plans overlap on one server while
-different bot/server streams can progress independently. Operation Center shows
-persisted recent history, pending/running/waiting/cancelling state, progress, final
-step counts, safe errors, timestamps, bot profile, server, audit reason, correlation
-ID, backup reference, compensation, and reconciliation.
+different bot/server streams can progress independently. Operation Center queries
+persisted history in pages. Search covers title, operation/correlation ID, server, and
+target; filters cover bot, server, type, state, risk, date, backup presence, and manual
+reconciliation. It shows progress, step counts, safe errors, timestamps, audit reason,
+backup/compensation/reconciliation state, state transitions, and persisted manual
+decisions. JSON and CSV exports use a normal Windows save dialog and show the record
+count, included metadata, excluded private fields, and destination before writing.
 
 Cancellation is cooperative. A request already accepted by Discord remains completed;
 not-started steps are reported as cancelled. “Partially completed” is not called
@@ -158,6 +167,67 @@ channel structure, modeled forum metadata where present, exact raw overwrite val
 source bot, explorer sequence, timestamp, and correlation ID. It stores no tokens,
 messages, DMs, voice content, authorization data, or member directory. Backup failure
 blocks the first Discord request.
+
+## Backup Browser and recreate structure
+
+Backups is a dedicated, virtualized, paged page. It searches backup/server/correlation
+IDs and server names; filters bot, server, date, source operation, and compatibility;
+and sorts by time, server, or resource count. The catalog displays pin state, schema,
+size, source sequence, resource/overwrite counts, live server access, referenced-role
+availability, and fully supported, partially supported, unsupported, newer-schema, or
+corrupt status. Selecting a row shows modeled channels, types, parents, positions,
+overwrites, unsupported fields, missing roles, source identifiers, warnings, and the
+exact data recreation cannot recover. Formatted structural JSON is technical data,
+not the primary interface.
+
+“Recreate structure” never means undo deletion or restore the original channel. The
+user explicitly chooses supported resources, edits proposed names, maps a backed-up
+category to a current category or creates its replacement, chooses Uncategorized
+where appropriate, and opts into permission overwrites. Role targets may be confirmed
+by exact ID, explicitly mapped (including `@everyone`), or skipped; a same-name role is
+only labeled as a suggestion. Member-specific overwrites default to Skip. Unresolved
+critical mappings block the plan.
+
+Replacement categories are created before children and final positions are reconciled
+after Discord returns each new resource ID. Reused categories are fingerprinted by
+preflight. Existing-name conflicts, duplicate planned names, missing categories,
+unsupported types, channel limits, permission/hierarchy changes, and current voice
+capabilities block execution. Three or more replacement channel creations require
+the exact text `RECREATE N CHANNELS`.
+
+Replacement resources always receive new Discord IDs. Messages, threads, pins,
+message links, webhook identities, invites, message history, external references,
+and voice history/content are not recovered. The default partial-failure policy keeps
+successful replacements. The alternatives are explicit safe cleanup of newly created
+resources or stop for manual review.
+
+## Retention, recovery, reconciliation, and export
+
+Local backup retention defaults to Keep indefinitely and never deletes in the
+background. Optional age, newest-per-server, failed/partial preservation, and maximum
+storage rules run only as a dry preview. The exact candidate IDs, reasons, and
+estimated bytes are shown before confirmation. Pinned backups are always protected.
+Confirmed cleanup and individual deletion remove only local SQLite records, create a
+local cleanup audit entry, and never call Discord.
+
+The executor journals a safe result after every completed step. At startup,
+Pending/Running/Waiting/Cancelling records are never resumed. Compatible plans use
+read-only current-state reconciliation when the bot/server is available, then become
+completed-after-reconciliation, partial, not-started, unable-to-inspect, or manual
+review. No compensating or corrective mutation occurs without a newly previewed and
+confirmed plan.
+
+The Operation Center reconciliation section records a timestamp, correlation/step ID,
+resolution, safe explanation, and relevant resource IDs. Recording a decision is
+local metadata only. History JSON, history CSV, and backup-metadata JSON use versioned
+safe models and exclude credentials, authorization, raw Discord payloads, messages,
+DMs, voice content, member directories, stack traces, and Windows user paths.
+
+Voice create/edit/recreate validation uses the current modeled boost tier
+(`None`, `Tier1`, `Tier2`, or `Tier3`) plus Discord.Net validation. Unknown future
+tiers are labeled uncertain instead of claiming a false maximum; Discord invalid
+value rejection remains non-retryable. Voice capabilities are rechecked immediately
+before execution.
 
 ## Guild Members privileged intent
 
@@ -311,9 +381,26 @@ Use only harmless, clearly named resources in a disposable private server:
     children become uncategorized.
 11. Recreate temporary structure and test explicit children-first category deletion.
 12. Verify a backup row predates each destructive result.
-13. Inspect SQLite/logs for tokens, authorization data, raw payloads, message content,
+13. Open Backups, inspect the Phase 4A deletion backup and its overwrites, and create
+    one harmless replacement channel with a modified name; verify its ID is new.
+14. Recreate a temporary category with two children; verify category dependency,
+    relative ordering, and explicitly selected role mappings.
+15. Cancel a multi-step replacement plan and verify the selected keep-successful
+    policy is reported honestly.
+16. Close during a harmless queued/running operation, restart, and verify startup
+    recovery inspects without automatically resuming a Discord mutation.
+17. Record a manual reconciliation decision, then search/filter the persisted
+    Operation Center timeline.
+18. Export history JSON/CSV and backup-metadata JSON; inspect them for prohibited
+    private fields.
+19. Pin a backup, preview a finite retention policy, and verify the pinned row is not
+    selected.
+20. Delete an unneeded local backup and verify no Discord resource changes.
+21. Create one temporary voice channel at a value supported by the current server tier
+    and verify invalid tier values are blocked before execution.
+22. Inspect SQLite/logs for tokens, authorization data, raw payloads, message content,
     DMs, member directories, or unsafe exception messages.
-14. Verify clean application shutdown terminates queue workers and gateway clients.
+23. Verify clean application shutdown terminates queue workers and gateway clients.
 
 ## Known limitations
 
@@ -329,17 +416,27 @@ Use only harmless, clearly named resources in a disposable private server:
   reconciliation deliberately requires manual review.
 - Existing same-name Discord resources are blocked for create/clone because they make
   safe timeout reconciliation ambiguous.
-- Server-specific maximum voice bitrate is ultimately enforced by Discord; the local
-  range validator allows 8,000–384,000 bps.
+- Unknown or future server tiers cannot be assigned a certain bitrate maximum from the
+  current read model; the UI warns and Discord.Net/Discord remain authoritative.
 - Category clone supports only ordinary text and voice children in Phase 4A.
-- Backups are retained locally until manually removed with the application data; an
-  automatic retention/deletion policy is not yet exposed.
-- Recreating structure from backup is manual recovery, not undo deletion.
+- Backup recreation supports only safely modeled category, ordinary text, and voice
+  resources. Forum, media, announcement, stage, thread, webhook, invite, and message
+  reconstruction remains unsupported.
+- Role-name matches are suggestions requiring an explicit user mapping; member
+  overwrites are excluded unless a future complete member-identity workflow can prove
+  the same ID and the user opts in.
+- Startup reconciliation depends on a connected bot and visible current server state.
+  Unavailable or multiply matching resources remain manual review.
+- Cleanup runs on user command rather than a background timer, so retention can never
+  unexpectedly delete an existing backup.
+- Recreating structure from backup is partial recovery, not undo deletion.
 
-## Phase 4B recommendation
+## Phase 4B status and recommended next phase
 
-Add a dedicated backup browser and explicit “recreate structure” planner, configurable
-history/backup retention, richer safe operation search/filter/export, and server-tier-
-aware voice validation. Keep member moderation, role writes, messaging, webhooks,
-auto-role behavior, and voice connections in separate later phases with their own
-immutable plans and stricter safety policies.
+Phase 4B provides the backup/replacement, retention, history/export, startup recovery,
+manual reconciliation, server-aware voice validation, and per-step durability
+described above. A next phase should first deepen recovery ergonomics (side-by-side
+Discord match inspection and corrective-plan generation) and operational telemetry.
+Member moderation, role writes, messaging, webhooks, auto-role behavior, and voice
+connections remain separate future milestones with their own immutable plans and
+stricter safety policies.

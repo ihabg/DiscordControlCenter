@@ -7,17 +7,20 @@ The project boundary remains:
 `Discord.Net gateway/REST → Discord adapter/translators → Application cache/services → ViewModels → WPF views`
 
 - `Core` owns immutable read models, completeness/status enums, permission comparison,
-  hierarchy-preflight result types, and immutable channel-operation plans/results.
+  hierarchy-preflight result types, immutable channel-operation plans/results, backup
+  catalog/query contracts, retention policy, recovery classifications, role mappings,
+  and versioned safe export models.
 - `Application` owns profile/connection use cases, the per-runtime cache, permission
   resolution, hierarchy safety policy, operation planning/preflight/scheduling/
   execution, retry, compensation, and reconciliation.
 - `Discord` is the only project allowed to reference Discord.Net. It owns clients,
   gateway subscriptions, paginated member retrieval, translation, and narrow channel
   write implementations.
-- `Infrastructure` owns SQLite, operation history/backups, audit persistence, and
-  DPAPI protection.
+- `Infrastructure` owns SQLite, paged operation history/backups, retention and
+  reconciliation metadata, audit persistence, and DPAPI protection.
 - `App` composes services and owns WPF state, cancellation generations, filtering,
-  virtualization, operation selection/configuration/confirmation, and accessible
+  virtualization, operation/replacement selection/configuration/confirmation,
+  retention preview, manual reconciliation decisions, save dialogs, and accessible
   result presentation.
 
 No ViewModel retains a Discord.Net entity. No Core/Application/App type exposes one.
@@ -33,6 +36,11 @@ creates a draft ViewModel, obtains an immutable `OperationPlan` from
 `IChannelOperationPlanner`, builds an `OperationPreview`, requires the dedicated
 confirmation window, and only then calls `IChannelOperationScheduler.EnqueueAsync`.
 WPF does not receive `IDiscordChannelWriter`.
+
+The Backup Browser uses `IRecreateStructurePlanner`, then hands its immutable plan and
+derived preview to `IOperationPlanSubmissionService`. That service opens the same
+confirmation window and scheduler used by Channels. There is no backup-specific
+writer or bypass executor.
 
 `IDiscordChannelWriter` exposes only create category/text/voice, modify, bulk position,
 set/delete overwrite, and delete channel. `BotConnectionManager` implements that
@@ -133,8 +141,17 @@ lifetime and item tokens are cancelled, workers get up to ten seconds to termina
 then per-server gates are disposed.
 
 Persisted Pending/Running/Waiting/Cancelling entries are not resumed blindly after
-startup. They become ReconciliationRequired with manual-review guidance. Recent
-terminal results are hydrated into Operation Center.
+startup. The executor persists a safe checkpoint after every completed step.
+`OperationRecoveryService` reads those checkpoints and, only when a bot/server is
+currently available, calls the existing read-only reconciliation service for
+incomplete steps. It classifies completed-after-reconciliation, partial, not started,
+unable to inspect, unsupported schema, or manual review. It never calls a writer,
+reruns a plan, or compensates at startup. Recent terminal results are hydrated into
+Operation Center.
+
+State changes are also appended to `OperationStateTransitions`. Manual decisions are
+separate immutable rows and cannot invoke Discord; corrective work returns through a
+new plan, preview, confirmation, and queue submission.
 
 ## Rate limits and retry
 
@@ -184,6 +201,28 @@ Before any High/Irreversible or otherwise destructive plan, the executor seriali
 supported forum metadata/tags, exact overwrite raw values, source bot, sequence,
 timestamp, operation ID, and correlation ID. Backup persistence must succeed before
 the first Discord request.
+
+`RecreateStructurePlanner` consumes one validated backup and supports only category,
+ordinary text, and voice snapshots. It validates selected indices, supported types,
+current names/limits, category mappings, current server capabilities, and explicit
+role mappings. Categories precede channels; child parent IDs and final reorder IDs are
+bound from earlier create results. The plan always describes replacement resources
+with null pre-create IDs and records its source backup.
+
+Role-ID matches may be selected exactly. Name matches are suggestions only. The user
+must explicitly choose another role, `@everyone`, or Skip. Member overwrites default
+to Skip. Mapped overwrite targets are rechecked by permission and hierarchy preflight
+immediately before execution.
+
+Recreate compensation is plan policy, not executor guesswork:
+
+- Keep successful resources is the default and has no cleanup capability.
+- Attempt cleanup permits reverse-order best-effort deletion of newly created
+  replacements.
+- Stop for manual review retains successful replacements and makes a partial failure
+  ReconciliationRequired.
+
+Uncertain outcomes and failed local checkpoints never trigger automatic compensation.
 
 ## Runtime and cache ownership
 
@@ -354,6 +393,14 @@ member projection. It does not rebuild the server or unrelated members.
 The Voice view is observational only. No `ConnectAsync` on a voice channel, audio
 client, voice server request, or transmission code exists.
 
+Voice structure writes are validated separately by
+`IVoiceChannelValidationService`. The current modeled boost tier supplies the
+determinable maximum bitrate (`None` 96 kbps, Tier 1 128 kbps, Tier 2 256 kbps, Tier
+3 384 kbps); user limit is 0–99. Unknown tier or unavailable region metadata produces
+an explicit compatibility warning instead of false certainty. The planner validates
+at preview time and preflight validates again against the current server snapshot.
+Discord/library invalid-value failures are known non-retryable outcomes.
+
 ## Diagnostics
 
 `IBotExplorerService.GetDiagnostics` joins safe connection state with immutable cache
@@ -399,10 +446,22 @@ tooltips, automation names, trimming, wrapping, scrolling, loading/empty/limited
 partial/error states, and retry controls. No view embeds raw foreground/background
 colors.
 
-## SQLite, auditing, and privacy
+## SQLite, auditing, retention, and privacy
 
-SQLite schema 3 preserves schema 2 and adds idempotent `OperationHistory` and
-`OperationBackups` tables and timestamp/bot-server indexes.
+SQLite schema 4 is one backward-compatible transaction over schema 3. It preserves
+existing history and backup rows, then adds:
+
+- `BackupCatalogMetadata` for reason/type/counts/schema/pin/size/corrupt status;
+- `BackupRetentionSettings`, defaulting to Keep indefinitely;
+- `OperationStateTransitions`;
+- `ManualReconciliationDecisions`;
+- `BackupCleanupAudit`;
+- server/time and bot/time backup indexes.
+
+Existing schema-3 backup JSON is parsed during migration to backfill bounded metadata.
+A malformed row is retained and marked corrupt; a newer schema is retained and
+classified rather than deserialized into a plan. The schema-version row is committed
+only with the migration transaction.
 
 History includes operation/correlation/type/bot/server/target IDs, safe display names,
 timestamps, state/counts, compensation summary, backup identifier, safe error codes,
@@ -411,10 +470,21 @@ insert uses the operation-ID primary key and cannot overwrite a duplicate; subse
 state transitions use explicit update/upsert behavior. Operation Center loads at most
 100 recent records. Backups have a unique operation ID.
 
-Neither table stores tokens, authorization headers, raw Discord payloads, messages,
+No operational table stores tokens, authorization headers, raw Discord payloads, messages,
 DMs, voice data, member directories, or full exception messages. Automatic retention
-deletion is intentionally not implemented in Phase 4A; local data remains under the
-current user's application-data directory.
+deletion is not scheduled. Cleanup is an explicit dry run and confirmation, preserves
+pinned and configured failed/partial backups, deletes backup+metadata rows in one
+transaction, and appends the exact local cleanup audit. It never reaches the Discord
+adapter.
+
+History and backup catalog queries validate page sizes (1–200), execute SQL
+search/filter/sort/count with `LIMIT/OFFSET`, and load detail on selection. Startup
+does not load every history/backup JSON document. Live compatibility filters scan
+bounded pages and retain only the requested output page.
+
+Safe exports page through repository results, honor cancellation, and serialize a
+versioned DTO rather than persisted plan/result JSON. History supports JSON and CSV;
+backup metadata supports JSON. Excluded fields are named in the export model.
 
 Intent changes write safe audit descriptions using profile IDs/names and Boolean state.
 Tokens, protected-token bytes, fingerprints, authorization headers, message content,
@@ -424,19 +494,26 @@ logs.
 DPAPI remains `CurrentUser` with application entropy. Token buffers retain the existing
 protection/zeroing behavior and masked UI.
 
-## Phase 4A boundary and known limits
+## Phase 4B boundary and known limits
 
-Phase 4A adds only guarded channel structure and overwrite writes. Read-model cache
-updates remain observations and never trigger implicit writes. Role/member explorers,
-permission simulation, hierarchy explanations, and voice inspection remain read-only.
+Phase 4B extends the guarded channel engine with replacement planning and local
+operational recovery. Read-model cache updates remain observations and never trigger
+implicit writes. Role/member explorers, permission simulation, hierarchy explanations,
+and voice inspection remain read-only.
 
 Direct announcement/forum/media/stage/thread deletion or cloning is blocked because
 the installed modeled surface cannot reproduce them accurately. Category deletion
 with such children is blocked unless category-only semantics leave children intact.
-Voice bitrate uses a broad Discord-valid local range; server-tier rejection remains a
-safe Discord validation result. Existing same-name creation identities are blocked to
-keep timeout reconciliation unambiguous.
+Backup recreation also excludes those types and all message/thread/webhook/invite
+content. Existing same-name creation identities are blocked to keep timeout
+reconciliation unambiguous.
 
-Backups support manual structure recovery only. There is no automatic “undo delete,”
-backup browser, retention UI, cross-server operation, persistent retry after restart,
-or universal Discord idempotency key. These are explicit Phase 4B candidates.
+There is no automatic “undo delete,” same-ID restoration, blind persistent retry,
+background backup deletion, cross-server identity proof, or universal Discord
+idempotency key. Startup recovery can inspect only what the currently connected bot
+can see. Multiple plausible matches remain manual review. Corrective-plan generation
+from a recorded manual decision is a recommended later recovery enhancement.
+
+Member moderation, role mutation/assignment, messaging/DMs, auto-role behavior,
+webhook/emoji/sticker mutation, bot voice connection/audio, server deletion, and
+user-token/self-bot behavior remain outside the architecture.

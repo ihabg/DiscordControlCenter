@@ -11,8 +11,12 @@ public sealed class ChannelOperationPreflightService(
     IBotConnectionManager connectionManager,
     IBotExplorerService explorer,
     IPermissionResolutionService permissions,
-    IRoleHierarchySafetyService hierarchySafety) : IChannelOperationPreflightService
+    IRoleHierarchySafetyService hierarchySafety,
+    IVoiceChannelValidationService? voiceValidation = null) : IChannelOperationPreflightService
 {
+    private readonly IVoiceChannelValidationService _voiceValidation =
+        voiceValidation ?? new VoiceChannelValidationService();
+
     public ChannelOperationPreflightResult Validate(OperationPlan plan)
     {
         var issues = new List<OperationPreflightIssue>();
@@ -117,6 +121,7 @@ public sealed class ChannelOperationPreflightService(
         }
 
         ValidateCreateConflicts(plan, server, issues, evaluated);
+        ValidateVoiceCapabilities(plan, server, issues, evaluated);
         var createCount = plan.Steps.Count(step =>
             step.Kind is OperationStepKind.CreateCategory
                 or OperationStepKind.CreateTextChannel
@@ -133,6 +138,41 @@ public sealed class ChannelOperationPreflightService(
         ValidatePermissions(plan, snapshot, server, issues, evaluated);
         ValidateOverwriteHierarchy(plan, server, issues, evaluated);
         return Result(issues, evaluated);
+    }
+
+    private void ValidateVoiceCapabilities(
+        OperationPlan plan,
+        ServerReadModel server,
+        List<OperationPreflightIssue> issues,
+        List<OperationPrecondition> evaluated)
+    {
+        foreach (var state in plan.Steps
+                     .Select(step => step.After)
+                     .OfType<ChannelOperationStateSnapshot>()
+                     .Where(state => state.Kind == ChannelKind.Voice))
+        {
+            var validation = _voiceValidation.Validate(
+                server,
+                state.Bitrate,
+                state.UserLimit,
+                state.RegionOverride);
+            var allowed = validation.IsValid;
+            evaluated.Add(
+                Evaluate(
+                    OperationPreconditionKind.SupportedChannelType,
+                    $"Voice settings for “{state.Name}” remain supported by the current server model.",
+                    allowed,
+                    "VOICE_CAPABILITY_CHANGED"));
+            if (!allowed)
+            {
+                issues.Add(
+                    Issue(
+                        "VOICE_CAPABILITY_CHANGED",
+                        string.Join(" ", validation.Errors),
+                        stale: true,
+                        state.Id));
+            }
+        }
     }
 
     private void ValidatePermissions(
@@ -193,10 +233,16 @@ public sealed class ChannelOperationPreflightService(
         List<OperationPrecondition> evaluated)
     {
         var roleIds = plan.Steps
-            .Select(step => step.PermissionOverwriteChange)
-            .OfType<PermissionOverwriteChange>()
-            .Where(change => change.TargetType == PermissionTargetKind.Role)
-            .Select(change => change.TargetId)
+            .SelectMany(step =>
+                (step.PermissionOverwriteChange is { } change
+                    ? new[] { (change.TargetId, change.TargetType) }
+                    : [])
+                .Concat(
+                    (step.After?.PermissionOverwrites
+                         ?? ImmutableArray<ChannelPermissionOverwriteSnapshot>.Empty)
+                    .Select(overwrite => (overwrite.TargetId, overwrite.TargetType))))
+            .Where(target => target.TargetType == PermissionTargetKind.Role)
+            .Select(target => target.TargetId)
             .Distinct()
             .ToArray();
         foreach (var roleId in roleIds)

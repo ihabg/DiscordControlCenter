@@ -68,6 +68,13 @@ public partial class App : System.Windows.Application
                         services.AddSingleton<IAuditRepository, SqliteAuditRepository>();
                         services.AddSingleton<IOperationHistoryRepository, SqliteOperationHistoryRepository>();
                         services.AddSingleton<IOperationBackupRepository, SqliteOperationBackupRepository>();
+                        services.AddSingleton<SqliteOperationalRecoveryRepository>();
+                        services.AddSingleton<IOperationHistoryQueryRepository>(
+                            provider => provider.GetRequiredService<SqliteOperationalRecoveryRepository>());
+                        services.AddSingleton<IBackupCatalogRepository>(
+                            provider => provider.GetRequiredService<SqliteOperationalRecoveryRepository>());
+                        services.AddSingleton<IManualReconciliationRepository>(
+                            provider => provider.GetRequiredService<SqliteOperationalRecoveryRepository>());
                         services.AddSingleton<ITokenProtector, WindowsTokenProtector>();
                         services.AddSingleton<IDiscordTokenValidator, DiscordTokenValidator>();
                         services.AddSingleton<IDiscordBotClientFactory, DiscordBotClientFactory>();
@@ -80,7 +87,12 @@ public partial class App : System.Windows.Application
                             provider => provider.GetRequiredService<BotConnectionManager>());
                         services.AddSingleton<IPermissionResolutionService, PermissionResolutionService>();
                         services.AddSingleton<IRoleHierarchySafetyService, RoleHierarchySafetyService>();
+                        services.AddSingleton<IVoiceChannelValidationService, VoiceChannelValidationService>();
                         services.AddSingleton<IChannelOperationPlanner, ChannelOperationPlanner>();
+                        services.AddSingleton<IBackupCatalogService, BackupCatalogService>();
+                        services.AddSingleton<IRecreateStructurePlanner, RecreateStructurePlanner>();
+                        services.AddSingleton<IOperationRecoveryService, OperationRecoveryService>();
+                        services.AddSingleton<IOperationExportService, OperationExportService>();
                         services.AddSingleton<IChannelOperationPreflightService, ChannelOperationPreflightService>();
                         services.AddSingleton<IOperationReconciliationService, ChannelOperationReconciliationService>();
                         services.AddSingleton<IChannelOperationExecutor, ChannelOperationExecutor>();
@@ -90,6 +102,7 @@ public partial class App : System.Windows.Application
                         services.AddSingleton<IBotProfileService, BotProfileService>();
                         services.AddSingleton<IUserDialogService, WpfUserDialogService>();
                         services.AddSingleton<IChannelOperationDialogService, ChannelOperationDialogService>();
+                        services.AddSingleton<IOperationPlanSubmissionService, OperationPlanSubmissionService>();
                         services.AddSingleton<DashboardViewModel>();
                         services.AddSingleton<BotsViewModel>();
                         services.AddSingleton<ServersViewModel>();
@@ -99,6 +112,7 @@ public partial class App : System.Windows.Application
                         services.AddSingleton<PermissionSimulatorViewModel>();
                         services.AddSingleton<VoiceViewModel>();
                         services.AddSingleton<OperationCenterViewModel>();
+                        services.AddSingleton<BackupBrowserViewModel>();
                         services.AddSingleton<MainWindowViewModel>();
                         services.AddSingleton<MainWindow>();
                     })
@@ -111,6 +125,9 @@ public partial class App : System.Windows.Application
             await _host.Services
                 .GetRequiredService<IBotConnectionManager>()
                 .InitializeAsync(CancellationToken.None);
+            await _host.Services
+                .GetRequiredService<IOperationRecoveryService>()
+                .InspectInterruptedAsync(CancellationToken.None);
             await _host.Services
                 .GetRequiredService<IChannelOperationScheduler>()
                 .InitializeAsync(CancellationToken.None);

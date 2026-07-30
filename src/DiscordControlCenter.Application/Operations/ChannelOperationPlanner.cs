@@ -8,12 +8,22 @@ using DiscordControlCenter.Core.Operations;
 
 namespace DiscordControlCenter.Application.Operations;
 
-public sealed class ChannelOperationPlanner(IBotExplorerService explorer) : IChannelOperationPlanner
+public sealed class ChannelOperationPlanner : IChannelOperationPlanner
 {
     private const ulong AddReactionsRaw = 1UL << 6;
     private const ulong SendMessagesRaw = 1UL << 11;
     private const ulong ConnectRaw = 1UL << 20;
     private const ulong SpeakRaw = 1UL << 21;
+    private readonly IBotExplorerService _explorer;
+    private readonly IVoiceChannelValidationService _voiceValidation;
+
+    public ChannelOperationPlanner(
+        IBotExplorerService explorer,
+        IVoiceChannelValidationService? voiceValidation = null)
+    {
+        _explorer = explorer;
+        _voiceValidation = voiceValidation ?? new VoiceChannelValidationService();
+    }
 
     public ChannelPlanResult PlanCreate(CreateChannelsRequest request)
     {
@@ -99,8 +109,7 @@ public sealed class ChannelOperationPlanner(IBotExplorerService explorer) : ICha
             .Select(channel => ToState(channel, server))
             .ToImmutableArray();
         var risk = steps.Length == 1 ? OperationRiskLevel.Low : OperationRiskLevel.Moderate;
-        return ChannelPlanResult.Success(
-            BuildPlan(
+        var plan = BuildPlan(
                 request.BotProfileId,
                 context.Snapshot!,
                 server,
@@ -119,7 +128,14 @@ public sealed class ChannelOperationPlanner(IBotExplorerService explorer) : ICha
                 steps,
                 ExplicitConfirmation(),
                 OperationCompensationCapability.BestEffort,
-                request.AuditReason));
+                request.AuditReason);
+        var voiceWarnings = request.Channels
+            .Where(item => item.Kind == ChannelKind.Voice)
+            .SelectMany(item =>
+                _voiceValidation.Validate(server, item.Bitrate, item.UserLimit, null).Warnings)
+            .Distinct(StringComparer.Ordinal)
+            .ToImmutableArray();
+        return ChannelPlanResult.Success(plan with { CompatibilityWarnings = voiceWarnings });
     }
 
     public ChannelPlanResult PlanEdit(EditChannelRequest request)
@@ -186,8 +202,7 @@ public sealed class ChannelOperationPlanner(IBotExplorerService explorer) : ICha
             && before.Bitrate == after.Bitrate
             && before.UserLimit == after.UserLimit
             && before.RegionOverride == after.RegionOverride;
-        return ChannelPlanResult.Success(
-            BuildPlan(
+        var plan = BuildPlan(
                 request.BotProfileId,
                 context.Snapshot!,
                 server,
@@ -200,7 +215,15 @@ public sealed class ChannelOperationPlanner(IBotExplorerService explorer) : ICha
                 [step],
                 ExplicitConfirmation(),
                 OperationCompensationCapability.ExactWhenTargetUnchanged,
-                request.AuditReason));
+                request.AuditReason);
+        var warnings = after.Kind == ChannelKind.Voice
+            ? _voiceValidation.Validate(
+                server,
+                after.Bitrate,
+                after.UserLimit,
+                after.RegionOverride).Warnings
+            : ImmutableArray<string>.Empty;
+        return ChannelPlanResult.Success(plan with { CompatibilityWarnings = warnings });
     }
 
     public ChannelPlanResult PlanBulkRename(BulkRenameRequest request)
@@ -1014,14 +1037,14 @@ public sealed class ChannelOperationPlanner(IBotExplorerService explorer) : ICha
             plan.RequiredBotPermissions.Select(permission => permission.ToString()).ToImmutableArray(),
             changes,
             overwrites,
-            consequences,
+            consequences.AddRange(plan.CompatibilityWarnings),
             plan.ConfirmationRequirement,
             plan.AuditReason);
     }
 
     private ContextResult GetContext(Guid botProfileId, ulong serverId)
     {
-        var snapshot = explorer.GetSnapshot(botProfileId);
+        var snapshot = _explorer.GetSnapshot(botProfileId);
         var server = snapshot.Servers.FirstOrDefault(item =>
             item.Id == serverId && item.Availability == ServerAvailability.Available);
         return server is null
@@ -1406,7 +1429,7 @@ public sealed class ChannelOperationPlanner(IBotExplorerService explorer) : ICha
         }
     }
 
-    private static List<string> ValidateCreationItems(
+    private List<string> ValidateCreationItems(
         ServerReadModel server,
         ImmutableArray<ChannelCreationItem> items)
     {
@@ -1486,6 +1509,16 @@ public sealed class ChannelOperationPlanner(IBotExplorerService explorer) : ICha
                 errors.Add($"User limit for “{item.Name}” must be between 0 and 99.");
             }
 
+            if (item.Kind == ChannelKind.Voice)
+            {
+                var voiceResult = _voiceValidation.Validate(
+                    server,
+                    item.Bitrate,
+                    item.UserLimit,
+                    null);
+                errors.AddRange(voiceResult.Errors.Select(error => $"{item.Name}: {error}"));
+            }
+
             if (item.Position is < 0 or > 499)
             {
                 errors.Add($"Position for “{item.Name}” must be between 0 and 499.");
@@ -1507,7 +1540,7 @@ public sealed class ChannelOperationPlanner(IBotExplorerService explorer) : ICha
         return errors;
     }
 
-    private static List<string> ValidateState(
+    private List<string> ValidateState(
         ServerReadModel server,
         ChannelOperationStateSnapshot state,
         ulong currentChannelId)
@@ -1542,6 +1575,16 @@ public sealed class ChannelOperationPlanner(IBotExplorerService explorer) : ICha
         if (state.UserLimit is < 0 or > 99)
         {
             errors.Add("Voice user limit must be between 0 and 99.");
+        }
+
+        if (state.Kind == ChannelKind.Voice)
+        {
+            errors.AddRange(
+                _voiceValidation.Validate(
+                    server,
+                    state.Bitrate,
+                    state.UserLimit,
+                    state.RegionOverride).Errors);
         }
 
         if (state.Position is < 0 or > 499)

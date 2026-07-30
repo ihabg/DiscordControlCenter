@@ -17,6 +17,7 @@ public enum ChannelOperationType
     LockChannels,
     UnlockChannels,
     SynchronizePermissions,
+    RecreateStructure,
     DeleteChannels,
     DeleteCategoryOnly,
     DeleteCategoryWithChildren
@@ -210,6 +211,8 @@ public sealed record OperationStep(
     OperationCompensation? Compensation)
 {
     public Guid? ParentResultStepId { get; init; }
+    public Guid? TargetResultStepId { get; init; }
+    public ImmutableArray<Guid> BatchResultStepIds { get; init; } = ImmutableArray<Guid>.Empty;
     public ImmutableArray<ChannelOperationStateSnapshot> BatchBeforeStates { get; init; } =
         ImmutableArray<ChannelOperationStateSnapshot>.Empty;
     public ImmutableArray<ChannelOperationStateSnapshot> BatchAfterStates { get; init; } =
@@ -238,6 +241,11 @@ public sealed record OperationPlan(
     OperationCompensationCapability CompensationCapability,
     string? AuditReason)
 {
+    public int SchemaVersion { get; init; } = 2;
+    public string? SourceBackupIdentifier { get; init; }
+    public ImmutableArray<string> CompatibilityWarnings { get; init; } = ImmutableArray<string>.Empty;
+    public RecreateCompensationPolicy RecreateCompensationPolicy { get; init; } =
+        RecreateCompensationPolicy.KeepSuccessfulResources;
     public bool IsDestructive =>
         RiskLevel is OperationRiskLevel.High or OperationRiskLevel.Irreversible
         || Steps.Any(step => step.IsDestructive);
@@ -334,7 +342,12 @@ public sealed record ServerStructureBackup(
     string ServerName,
     long ExplorerSequence,
     DateTimeOffset CreatedAt,
-    ImmutableArray<ChannelOperationStateSnapshot> Channels);
+    ImmutableArray<ChannelOperationStateSnapshot> Channels)
+{
+    public int SchemaVersion { get; init; } = 2;
+    public string BackupReason { get; init; } = "Pre-operation structural backup";
+    public ChannelOperationType SourceOperationType { get; init; } = ChannelOperationType.DeleteChannels;
+}
 
 public sealed record OperationHistoryEntry(
     Guid OperationId,
@@ -358,4 +371,10 @@ public sealed record OperationHistoryEntry(
     long DurationMilliseconds,
     string? AuditReason,
     string PlanJson,
-    string? ResultJson);
+    string? ResultJson)
+{
+    public string Title { get; init; } = string.Empty;
+    public OperationRiskLevel RiskLevel { get; init; }
+    public int AffectedResourceCount { get; init; }
+    public OperationReconciliationStatus ReconciliationStatus { get; init; }
+}

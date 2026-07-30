@@ -21,6 +21,91 @@
                     <TextBlock Text="Persisted plans, progress, and reconciled outcomes"
                                Style="{StaticResource MutedTextStyle}"
                                Margin="0,3,0,0" />
+                    <DockPanel Margin="0,10,0,0">
+                        <Button DockPanel.Dock="Right" Content="Search"
+                                Command="{Binding SearchCommand}" Margin="8,0,0,0" />
+                        <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                                 automation:AutomationProperties.Name="Search operation history"
+                                 ToolTip="Title, correlation ID, operation ID, server, or target" />
+                    </DockPanel>
+                    <Expander Header="Filters and sorting" Margin="0,8,0,0">
+                        <Grid Margin="0,8,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="7" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <TextBox Text="{Binding BotFilter, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="Optional bot profile GUID"
+                                     automation:AutomationProperties.Name="History bot filter" />
+                            <TextBox Grid.Column="2"
+                                     Text="{Binding ServerFilter, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="Optional Discord server ID"
+                                     automation:AutomationProperties.Name="History server filter" />
+                            <TextBox Grid.Row="1"
+                                     Text="{Binding CreatedFromFilter, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="Created from date"
+                                     Margin="0,6,0,0" />
+                            <TextBox Grid.Row="1" Grid.Column="2"
+                                     Text="{Binding CreatedToFilter, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="Created to date"
+                                     Margin="0,6,0,0" />
+                            <ComboBox Grid.Row="2"
+                                      ItemsSource="{Binding OperationTypeOptions}"
+                                      SelectedItem="{Binding OperationTypeFilter}"
+                                      Margin="0,6,0,0"
+                                      automation:AutomationProperties.Name="History operation type filter" />
+                            <ComboBox Grid.Row="2" Grid.Column="2"
+                                      ItemsSource="{Binding StateOptions}"
+                                      SelectedItem="{Binding StateFilter}"
+                                      Margin="0,6,0,0"
+                                      automation:AutomationProperties.Name="History state filter" />
+                            <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,6,0,0">
+                                <ComboBox ItemsSource="{Binding RiskOptions}"
+                                          SelectedItem="{Binding RiskFilter}"
+                                          MinWidth="92"
+                                          automation:AutomationProperties.Name="History risk filter" />
+                                <ComboBox ItemsSource="{Binding BooleanFilterOptions}"
+                                          SelectedItem="{Binding BackupFilter}"
+                                          ToolTip="Created backup: All / Yes / No"
+                                          MinWidth="65"
+                                          Margin="5,0,0,0" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="3" Grid.Column="2"
+                                        Orientation="Horizontal" Margin="0,6,0,0">
+                                <ComboBox ItemsSource="{Binding BooleanFilterOptions}"
+                                          SelectedItem="{Binding ManualFilter}"
+                                          ToolTip="Needs manual reconciliation: All / Yes / No"
+                                          MinWidth="65" />
+                                <ComboBox ItemsSource="{Binding SortOptions}"
+                                          SelectedItem="{Binding SelectedSort}"
+                                          MinWidth="92"
+                                          Margin="5,0,0,0" />
+                            </StackPanel>
+                        </Grid>
+                    </Expander>
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <Button Content="Previous" Command="{Binding PreviousHistoryPageCommand}"
+                                Style="{StaticResource SecondaryButtonStyle}" />
+                        <TextBlock Text="{Binding HistoryPageText}" Style="{StaticResource MutedTextStyle}"
+                                   Margin="10,7" />
+                        <Button Content="Next" Command="{Binding NextHistoryPageCommand}"
+                                Style="{StaticResource SecondaryButtonStyle}" />
+                        <Button Content="Export JSON" Command="{Binding ExportJsonCommand}"
+                                Style="{StaticResource SecondaryButtonStyle}" Margin="12,0,0,0" />
+                        <Button Content="CSV" Command="{Binding ExportCsvCommand}"
+                                Style="{StaticResource SecondaryButtonStyle}" Margin="6,0,0,0" />
+                    </StackPanel>
+                    <TextBlock Text="{Binding HistoryError}"
+                               Style="{StaticResource SecondaryTextStyle}"
+                               TextWrapping="Wrap"
+                               Margin="0,7,0,0" />
                 </StackPanel>
                 <ListBox Grid.Row="1"
                          ItemsSource="{Binding Operations}"
@@ -139,11 +224,50 @@
                                     Command="{Binding RegeneratePreviewCommand}"
                                     Style="{StaticResource SecondaryButtonStyle}"
                                     automation:AutomationProperties.Name="Regenerate operation preview" />
+                            <Button Content="Archive ambiguity"
+                                    Command="{Binding ArchiveAmbiguityCommand}"
+                                    Style="{StaticResource SecondaryButtonStyle}"
+                                    Margin="10,0,0,0"
+                                    ToolTip="Persist a manual keep-current-state decision; this performs no Discord action." />
                         </StackPanel>
                         <TextBlock Text="{Binding SelectedOperation.RetryGuidance}"
                                    Style="{StaticResource MutedTextStyle}"
                                    TextWrapping="Wrap"
                                    Margin="0,8,0,0" />
+
+                        <Expander Header="Manual reconciliation center"
+                                  Margin="0,14,0,0">
+                            <StackPanel Margin="0,8,0,0">
+                                <TextBlock Text="Recording a decision is local metadata only. It never mutates Discord. Corrective or compensating work must become a new previewed and confirmed plan."
+                                           Style="{StaticResource SecondaryTextStyle}"
+                                           TextWrapping="Wrap" />
+                                <ComboBox ItemsSource="{Binding SelectedOperation.StepResults}"
+                                          SelectedItem="{Binding SelectedReconciliationStep}"
+                                          DisplayMemberPath="Description"
+                                          Margin="0,8,0,0"
+                                          automation:AutomationProperties.Name="Ambiguous operation step" />
+                                <ComboBox ItemsSource="{Binding ReconciliationResolutions}"
+                                          SelectedItem="{Binding SelectedResolution}"
+                                          Margin="0,7,0,0"
+                                          automation:AutomationProperties.Name="Manual reconciliation resolution" />
+                                <TextBox Text="{Binding RelevantResourceIds, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="Optional comma-separated matching Discord resource IDs"
+                                         Margin="0,7,0,0"
+                                         automation:AutomationProperties.Name="Relevant reconciliation resource IDs" />
+                                <TextBox Text="{Binding ReconciliationExplanation, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="Safe explanation (no tokens, raw payloads, or private content)"
+                                         TextWrapping="Wrap"
+                                         AcceptsReturn="True"
+                                         MinHeight="54"
+                                         Margin="0,7,0,0"
+                                         automation:AutomationProperties.Name="Manual reconciliation explanation" />
+                                <Button Content="Record decision (no Discord action)"
+                                        Command="{Binding RecordDecisionCommand}"
+                                        Margin="0,8,0,0"
+                                        HorizontalAlignment="Left"
+                                        automation:AutomationProperties.Name="Record manual reconciliation decision" />
+                            </StackPanel>
+                        </Expander>
 
                         <ProgressBar Value="{Binding SelectedOperation.ProgressPercent, Mode=OneWay}"
                                      Maximum="100"
@@ -265,6 +389,54 @@
                                                        Style="{StaticResource SecondaryTextStyle}"
                                                        Margin="12,0,0,0" />
                                         </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <TextBlock Text="State timeline"
+                                   Style="{StaticResource SectionHeadingStyle}"
+                                   Margin="0,18,0,8" />
+                        <ItemsControl ItemsSource="{Binding SelectedHistoryDetail.Timeline}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Style="{StaticResource PanelSurfaceStyle}"
+                                            Padding="10" Margin="0,0,0,6">
+                                        <StackPanel>
+                                            <TextBlock Style="{StaticResource BodyTextStyle}">
+                                                <Run Text="{Binding State, Mode=OneWay}" />
+                                                <Run Text=" • " />
+                                                <Run Text="{Binding ReasonCode, Mode=OneWay}" />
+                                            </TextBlock>
+                                            <TextBlock Text="{Binding Timestamp}"
+                                                       Style="{StaticResource MutedTextStyle}" />
+                                            <TextBlock Text="{Binding SafeSummary}"
+                                                       Style="{StaticResource SecondaryTextStyle}"
+                                                       TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <TextBlock Text="Persisted manual decisions"
+                                   Style="{StaticResource SectionHeadingStyle}"
+                                   Margin="0,18,0,8" />
+                        <ItemsControl ItemsSource="{Binding SelectedHistoryDetail.ManualDecisions}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Style="{StaticResource PanelSurfaceStyle}"
+                                            Padding="10" Margin="0,0,0,6">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Resolution}"
+                                                       Style="{StaticResource BodyTextStyle}"
+                                                       FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding Timestamp}"
+                                                       Style="{StaticResource MutedTextStyle}" />
+                                            <TextBlock Text="{Binding SafeExplanation}"
+                                                       Style="{StaticResource SecondaryTextStyle}"
+                                                       TextWrapping="Wrap" />
+                                        </StackPanel>
                                     </Border>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>

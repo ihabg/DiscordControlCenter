@@ -46,6 +46,9 @@
             <DataTemplate DataType="{x:Type vm:OperationCenterViewModel}">
                 <views:OperationCenterView />
             </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:BackupBrowserViewModel}">
+                <views:BackupBrowserView />
+            </DataTemplate>
             <DataTemplate DataType="{x:Type vm:PlaceholderViewModel}">
                 <views:PlaceholderView />
             </DataTemplate>

@@ -112,7 +112,7 @@ public sealed class ChannelOperationExecutor(
                 break;
             }
 
-            var step = BindCreatedParent(originalStep, createdResourceIds);
+            var step = BindCreatedReferences(originalStep, createdResourceIds);
             Report(
                 ChannelOperationState.Running,
                 results.Count(result => result.Succeeded),
@@ -203,13 +203,37 @@ public sealed class ChannelOperationExecutor(
                         null,
                         false,
                         OperationOutcomeCertainty.Uncertain);
+            }
+
+            if (!await PersistCheckpointAsync(terminalFailure).ConfigureAwait(false))
+            {
+                terminalFailure ??= new OperationFailure(
+                    OperationFailureKind.UncertainOutcome,
+                    "HISTORY_CHECKPOINT_FAILED",
+                    "The completed step could not be journaled locally. Execution stopped for manual review.",
+                    null,
+                    false,
+                    OperationOutcomeCertainty.Uncertain);
+                uncertainRequiresReview = true;
+            }
+
+            if (!succeeded || uncertainRequiresReview)
+            {
                 break;
             }
+        }
+
+        if (terminalFailure is not null
+            && plan.OperationType == ChannelOperationType.RecreateStructure
+            && plan.RecreateCompensationPolicy == RecreateCompensationPolicy.StopForManualReview)
+        {
+            uncertainRequiresReview = true;
         }
 
         var compensationSummary = "No compensation was required.";
         if (terminalFailure is not null
             && !cancellationToken.IsCancellationRequested
+            && !uncertainRequiresReview
             && plan.CompensationCapability != OperationCompensationCapability.None)
         {
             compensationSummary = await CompensateAsync(
@@ -272,6 +296,35 @@ public sealed class ChannelOperationExecutor(
                 "No compensation was required because no Discord request was sent.");
             await PersistFinalAsync(plan, cancelled, timer.ElapsedMilliseconds).ConfigureAwait(false);
             return cancelled;
+        }
+
+        async Task<bool> PersistCheckpointAsync(OperationFailure? failure)
+        {
+            try
+            {
+                var checkpoint = BuildResult(
+                    ChannelOperationState.Running,
+                    failure,
+                    "Compensation has not run.");
+                await historyRepository
+                    .UpdateAsync(
+                        BuildHistory(
+                            plan,
+                            ChannelOperationState.Running,
+                            startedAt,
+                            null,
+                            checkpoint,
+                            backupIdentifier,
+                            timer.ElapsedMilliseconds),
+                        CancellationToken.None)
+                    .ConfigureAwait(false);
+                return true;
+            }
+            catch (Exception exception)
+            {
+                HistoryWriteFailedLog(logger, plan.OperationId, exception.GetType().Name, null);
+                return false;
+            }
         }
 
         ChannelOperationResult BuildResult(
@@ -572,21 +625,51 @@ public sealed class ChannelOperationExecutor(
         };
     }
 
-    private static OperationStep BindCreatedParent(
+    private static OperationStep BindCreatedReferences(
         OperationStep step,
         Dictionary<Guid, ulong> createdResourceIds)
     {
-        if (step.ParentResultStepId is not Guid parentStepId
-            || !createdResourceIds.TryGetValue(parentStepId, out var parentId)
-            || step.After is null)
+        var bound = step;
+        if (step.ParentResultStepId is Guid parentStepId
+            && createdResourceIds.TryGetValue(parentStepId, out var parentId)
+            && step.After is not null)
         {
-            return step;
+            bound = bound with
+            {
+                After = step.After with { ParentCategoryId = parentId }
+            };
         }
 
-        return step with
+        if (step.TargetResultStepId is Guid targetStepId
+            && createdResourceIds.TryGetValue(targetStepId, out var targetId))
         {
-            After = step.After with { ParentCategoryId = parentId }
-        };
+            bound = bound with
+            {
+                Target = bound.Target with { Id = targetId },
+                Before = bound.Before is null ? null : bound.Before with { Id = targetId },
+                After = bound.After is null ? null : bound.After with { Id = targetId }
+            };
+        }
+
+        if (!step.BatchResultStepIds.IsDefaultOrEmpty
+            && step.BatchResultStepIds.Length == step.BatchAfterStates.Length)
+        {
+            var states = ImmutableArray.CreateBuilder<ChannelOperationStateSnapshot>(
+                step.BatchAfterStates.Length);
+            for (var index = 0; index < step.BatchAfterStates.Length; index++)
+            {
+                if (!createdResourceIds.TryGetValue(step.BatchResultStepIds[index], out var resourceId))
+                {
+                    return bound;
+                }
+
+                states.Add(step.BatchAfterStates[index] with { Id = resourceId });
+            }
+
+            bound = bound with { BatchAfterStates = states.ToImmutable() };
+        }
+
+        return bound;
     }
 
     private static ServerStructureBackup BuildBackup(OperationPlan plan) =>
@@ -599,7 +682,11 @@ public sealed class ChannelOperationExecutor(
             plan.ServerNameSnapshot,
             plan.SourceExplorerSequence,
             DateTimeOffset.UtcNow,
-            plan.ExactBeforeState);
+            plan.ExactBeforeState)
+        {
+            BackupReason = $"Pre-operation backup for {plan.Title}",
+            SourceOperationType = plan.OperationType
+        };
 
     internal static OperationHistoryEntry BuildHistory(
         OperationPlan plan,
@@ -631,7 +718,14 @@ public sealed class ChannelOperationExecutor(
             durationMilliseconds,
             plan.AuditReason,
             JsonSerializer.Serialize(plan),
-            result is null ? null : JsonSerializer.Serialize(result));
+            result is null ? null : JsonSerializer.Serialize(result))
+        {
+            Title = plan.Title,
+            RiskLevel = plan.RiskLevel,
+            AffectedResourceCount = plan.Steps.Length,
+            ReconciliationStatus =
+                result?.Reconciliation.Status ?? OperationReconciliationStatus.NotRequired
+        };
 
     private static string? SafeErrorCodes(ChannelOperationResult? result)
     {

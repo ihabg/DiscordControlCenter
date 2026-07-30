@@ -13,6 +13,7 @@ public sealed class ChannelOperationScheduler : IChannelOperationScheduler
     private const int WorkerCount = 2;
     private readonly IChannelOperationExecutor _executor;
     private readonly IOperationHistoryRepository _historyRepository;
+    private readonly IOperationHistoryQueryRepository? _historyQueries;
     private readonly ILogger<ChannelOperationScheduler> _logger;
     private readonly Channel<QueuedItem> _queue;
     private readonly ConcurrentDictionary<Guid, QueuedItem> _items = new();
@@ -26,11 +27,13 @@ public sealed class ChannelOperationScheduler : IChannelOperationScheduler
     public ChannelOperationScheduler(
         IChannelOperationExecutor executor,
         IOperationHistoryRepository historyRepository,
-        ILogger<ChannelOperationScheduler> logger)
+        ILogger<ChannelOperationScheduler> logger,
+        IOperationHistoryQueryRepository? historyQueries = null)
     {
         _executor = executor;
         _historyRepository = historyRepository;
         _logger = logger;
+        _historyQueries = historyQueries;
         _queue = Channel.CreateBounded<QueuedItem>(
             new BoundedChannelOptions(Capacity)
             {
@@ -227,6 +230,12 @@ public sealed class ChannelOperationScheduler : IChannelOperationScheduler
                         0),
                     cancellationToken)
                 .ConfigureAwait(false);
+            await RecordTransitionSafeAsync(
+                    plan.OperationId,
+                    ChannelOperationState.Pending,
+                    "QUEUED",
+                    "The immutable plan was persisted and queued.")
+                .ConfigureAwait(false);
             await _queue.Writer.WriteAsync(item, cancellationToken).ConfigureAwait(false);
             Publish(item);
             return new QueueSubmissionResult(true, position, null);
@@ -274,6 +283,11 @@ public sealed class ChannelOperationScheduler : IChannelOperationScheduler
                 }
         };
         Publish(item);
+        _ = RecordTransitionSafeAsync(
+            item.Plan.OperationId,
+            ChannelOperationState.Cancelling,
+            "CANCELLATION_REQUESTED",
+            "The user requested cancellation; an accepted Discord request is not undone.");
         return true;
     }
 
@@ -347,16 +361,31 @@ public sealed class ChannelOperationScheduler : IChannelOperationScheduler
                         State = ChannelOperationState.Running,
                         QueuePosition = 0
                     };
+                    await RecordTransitionSafeAsync(
+                            item.Plan.OperationId,
+                            ChannelOperationState.Running,
+                            "WORKER_STARTED",
+                            "A bounded queue worker started the approved plan.")
+                        .ConfigureAwait(false);
                     Publish(item);
                     var progress = new InlineProgress<OperationProgress>(
                         update =>
                         {
+                            var previousState = item.Snapshot.State;
                             item.Snapshot = item.Snapshot with
                             {
                                 State = update.State,
                                 Progress = update
                             };
                             Publish(item);
+                            if (previousState != update.State)
+                            {
+                                _ = RecordTransitionSafeAsync(
+                                    item.Plan.OperationId,
+                                    update.State,
+                                    "EXECUTION_PROGRESS",
+                                    update.Message);
+                            }
                         });
                     var result = await _executor
                         .ExecuteAsync(item.Plan, progress, item.Cancellation.Token)
@@ -369,6 +398,12 @@ public sealed class ChannelOperationScheduler : IChannelOperationScheduler
                             : item.Snapshot.Progress with { State = result.State },
                         Result = result
                     };
+                    await RecordTransitionSafeAsync(
+                            item.Plan.OperationId,
+                            result.State,
+                            "EXECUTION_FINISHED",
+                            result.Failure?.SafeMessage ?? "The operation reached a terminal state.")
+                        .ConfigureAwait(false);
                     Publish(item);
                 }
                 catch (OperationCanceledException)
@@ -412,6 +447,12 @@ public sealed class ChannelOperationScheduler : IChannelOperationScheduler
                             null);
                     }
 
+                    await RecordTransitionSafeAsync(
+                            item.Plan.OperationId,
+                            result.State,
+                            "WORKER_FAILURE",
+                            result.Failure?.SafeMessage ?? "The worker stopped for manual review.")
+                        .ConfigureAwait(false);
                     Publish(item);
                 }
                 finally
@@ -487,7 +528,47 @@ public sealed class ChannelOperationScheduler : IChannelOperationScheduler
                     0),
                 CancellationToken.None)
             .ConfigureAwait(false);
+        await RecordTransitionSafeAsync(
+                item.Plan.OperationId,
+                result.State,
+                "CANCELLED_BEFORE_EXECUTION",
+                "The queued operation was cancelled before a Discord request was sent.")
+            .ConfigureAwait(false);
         Publish(item);
+    }
+
+    private async Task RecordTransitionSafeAsync(
+        Guid operationId,
+        ChannelOperationState state,
+        string reasonCode,
+        string safeSummary)
+    {
+        if (_historyQueries is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _historyQueries.AddTransitionAsync(
+                    new OperationStateTransition(
+                        0,
+                        operationId,
+                        state,
+                        DateTimeOffset.UtcNow,
+                        reasonCode,
+                        safeSummary),
+                    CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            HistoryRecoveryFailedLog(
+                _logger,
+                operationId,
+                exception.GetType().Name,
+                null);
+        }
     }
 
     private void Publish(QueuedItem item) =>

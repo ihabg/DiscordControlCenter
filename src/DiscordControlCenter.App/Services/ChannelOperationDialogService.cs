@@ -7,7 +7,7 @@ namespace DiscordControlCenter.App.Services;
 
 public sealed class ChannelOperationDialogService(
     IChannelOperationPlanner planner,
-    IChannelOperationScheduler scheduler) : IChannelOperationDialogService
+    IOperationPlanSubmissionService submissionService) : IChannelOperationDialogService
 {
     public async Task<bool> ConfigurePreviewConfirmAndQueueAsync(
         ChannelOperationContext context,
@@ -27,36 +27,8 @@ public sealed class ChannelOperationDialogService(
 
         cancellationToken.ThrowIfCancellationRequested();
         var preview = planner.BuildPreview(plan, context.BotDisplayName);
-        var confirmationViewModel = new OperationConfirmationViewModel(plan, preview);
-        var confirmationWindow = new OperationConfirmationWindow(confirmationViewModel)
-        {
-            Owner = System.Windows.Application.Current.MainWindow
-        };
-        if (confirmationWindow.ShowDialog() != true)
-        {
-            return false;
-        }
-
-        cancellationToken.ThrowIfCancellationRequested();
-        var submission = await scheduler
-            .EnqueueAsync(plan, cancellationToken)
+        return await submissionService
+            .ConfirmAndQueueAsync(plan, preview, cancellationToken)
             .ConfigureAwait(true);
-        if (!submission.Accepted)
-        {
-            MessageBox.Show(
-                submission.Error ?? "The operation could not be queued.",
-                "Operation not queued",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
-            return false;
-        }
-
-        MessageBox.Show(
-            $"Operation queued. Position: {submission.QueuePosition ?? 1}.\n"
-            + $"Correlation ID: {plan.CorrelationId}",
-            "Operation queued",
-            MessageBoxButton.OK,
-            MessageBoxImage.Information);
-        return true;
     }
 }

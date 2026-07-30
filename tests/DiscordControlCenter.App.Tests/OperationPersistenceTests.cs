@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using DiscordControlCenter.Core.Explorer;
 using DiscordControlCenter.Core.Operations;
@@ -11,7 +13,7 @@ namespace DiscordControlCenter.App.Tests;
 public sealed class OperationPersistenceTests
 {
     [Fact]
-    public async Task MigrationCreatesVersionThreeOperationTables()
+    public async Task MigrationCreatesVersionFourOperationalRecoveryTables()
     {
         await using var database = await TestDatabase.CreateAsync();
 
@@ -21,8 +23,14 @@ public sealed class OperationPersistenceTests
             "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name;");
 
         Assert.Contains("3", versions);
+        Assert.Contains("4", versions);
         Assert.Contains("OperationHistory", tables);
         Assert.Contains("OperationBackups", tables);
+        Assert.Contains("BackupCatalogMetadata", tables);
+        Assert.Contains("BackupRetentionSettings", tables);
+        Assert.Contains("OperationStateTransitions", tables);
+        Assert.Contains("ManualReconciliationDecisions", tables);
+        Assert.Contains("BackupCleanupAudit", tables);
     }
 
     [Fact]
@@ -74,6 +82,45 @@ public sealed class OperationPersistenceTests
             "Message",
             JsonSerializer.Serialize(restored),
             StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task VersionThreeHistoryAndBackupsArePreservedAndBackfilled()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var history = new SqliteOperationHistoryRepository(database.ConnectionFactory);
+        var backups = new SqliteOperationBackupRepository(database.ConnectionFactory);
+        var plan = UiOperationTestData.Plan();
+        var entry = Entry(plan, ChannelOperationState.Completed, null);
+        var backup = Backup(plan, "schema-three-backup", DateTimeOffset.UtcNow);
+        await history.AddAsync(entry, CancellationToken.None);
+        await backups.SaveAsync(backup, CancellationToken.None);
+        await database.ExecuteAsync(
+            """
+            DROP TABLE BackupCatalogMetadata;
+            DROP TABLE BackupRetentionSettings;
+            DROP TABLE OperationStateTransitions;
+            DROP TABLE ManualReconciliationDecisions;
+            DROP TABLE BackupCleanupAudit;
+            DELETE FROM SchemaVersions WHERE Version = 4;
+            """);
+
+        await database.InitializeAsync();
+
+        var restoredHistory = await history.GetAsync(plan.OperationId, CancellationToken.None);
+        var restoredBackup = await backups.GetAsync(backup.BackupIdentifier, CancellationToken.None);
+        var catalog = new SqliteOperationalRecoveryRepository(database.ConnectionFactory);
+        var metadata = await catalog.GetCatalogItemAsync(
+            backup.BackupIdentifier,
+            CancellationToken.None);
+        Assert.NotNull(restoredHistory);
+        Assert.NotNull(restoredBackup);
+        Assert.NotNull(metadata);
+        Assert.Equal(backup.Channels.Length, metadata.CategoryCount + metadata.ChannelCount);
+        Assert.Equal(
+            backup.Channels.Sum(channel => channel.PermissionOverwrites.Length),
+            metadata.PermissionOverwriteCount);
+        Assert.False(metadata.IsPinned);
     }
 
     [Fact]
@@ -130,6 +177,228 @@ public sealed class OperationPersistenceTests
             || column.Contains("Authorization", StringComparison.OrdinalIgnoreCase)
             || column.Contains("MessageContent", StringComparison.OrdinalIgnoreCase));
     }
+
+    [Fact]
+    public async Task BackupCatalogSupportsSearchPagingPinningAndLocalOnlyDeletion()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var backups = new SqliteOperationBackupRepository(database.ConnectionFactory);
+        var catalog = new SqliteOperationalRecoveryRepository(database.ConnectionFactory);
+        var plan = UiOperationTestData.Plan();
+        var first = Backup(plan, "backup-first", DateTimeOffset.UtcNow.AddDays(-2));
+        var second = Backup(
+            plan with
+            {
+                OperationId = Guid.NewGuid(),
+                CorrelationId = Guid.NewGuid()
+            },
+            "backup-second",
+            DateTimeOffset.UtcNow.AddDays(-1));
+        await backups.SaveAsync(first, CancellationToken.None);
+        await backups.SaveAsync(second, CancellationToken.None);
+
+        var page = await catalog.QueryAsync(
+            BackupQuery(search: "backup-", pageNumber: 1, pageSize: 1),
+            CancellationToken.None);
+        var serverSearch = await catalog.QueryAsync(
+            BackupQuery(search: plan.ServerId.ToString(CultureInfo.InvariantCulture)),
+            CancellationToken.None);
+
+        Assert.Equal(2, page.TotalCount);
+        Assert.Equal(2, page.TotalPages);
+        Assert.Single(page.Items);
+        Assert.Equal("backup-second", page.Items[0].BackupIdentifier);
+        Assert.Equal(2, serverSearch.TotalCount);
+
+        await catalog.SetPinnedAsync("backup-first", true, CancellationToken.None);
+        await catalog.DeleteLocalAsync(
+            ["backup-first", "backup-second"],
+            "Persistence test",
+            CancellationToken.None);
+        var remaining = await catalog.QueryAsync(
+            BackupQuery(),
+            CancellationToken.None);
+        var cleanupAudit = await database.ReadStringsAsync(
+            "SELECT SafeReason FROM BackupCleanupAudit;");
+
+        var pinned = Assert.Single(remaining.Items);
+        Assert.Equal("backup-first", pinned.BackupIdentifier);
+        Assert.True(pinned.IsPinned);
+        Assert.Contains("Persistence test", cleanupAudit);
+    }
+
+    [Fact]
+    public async Task RetentionDryRunPreservesPinnedAndFailedOperationBackups()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var history = new SqliteOperationHistoryRepository(database.ConnectionFactory);
+        var backups = new SqliteOperationBackupRepository(database.ConnectionFactory);
+        var catalog = new SqliteOperationalRecoveryRepository(database.ConnectionFactory);
+        var plan = UiOperationTestData.Plan();
+        var failedPlan = plan with
+        {
+            OperationId = Guid.NewGuid(),
+            CorrelationId = Guid.NewGuid()
+        };
+        await history.AddAsync(
+            Entry(failedPlan, ChannelOperationState.Failed, "SAFE_FAILURE"),
+            CancellationToken.None);
+        await backups.SaveAsync(
+            Backup(plan, "backup-pinned", DateTimeOffset.UtcNow.AddDays(-60)),
+            CancellationToken.None);
+        await backups.SaveAsync(
+            Backup(failedPlan, "backup-failed", DateTimeOffset.UtcNow.AddDays(-50)),
+            CancellationToken.None);
+        var ordinaryPlan = plan with
+        {
+            OperationId = Guid.NewGuid(),
+            CorrelationId = Guid.NewGuid()
+        };
+        await backups.SaveAsync(
+            Backup(ordinaryPlan, "backup-expired", DateTimeOffset.UtcNow.AddDays(-40)),
+            CancellationToken.None);
+        await catalog.SetPinnedAsync("backup-pinned", true, CancellationToken.None);
+
+        var preview = await catalog.PreviewCleanupAsync(
+            new BackupRetentionPolicy(false, 30, null, true, null),
+            DateTimeOffset.UtcNow,
+            CancellationToken.None);
+
+        var candidate = Assert.Single(preview.Candidates);
+        Assert.Equal("backup-expired", candidate.BackupIdentifier);
+        Assert.DoesNotContain(preview.Candidates, item => item.BackupIdentifier == "backup-pinned");
+        Assert.DoesNotContain(preview.Candidates, item => item.BackupIdentifier == "backup-failed");
+        Assert.True(preview.EstimatedBytesReclaimed > 0);
+    }
+
+    [Fact]
+    public async Task CatalogClassifiesNewerSchemaAndCorruptBackups()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var backups = new SqliteOperationBackupRepository(database.ConnectionFactory);
+        var catalog = new SqliteOperationalRecoveryRepository(database.ConnectionFactory);
+        var plan = UiOperationTestData.Plan();
+        await backups.SaveAsync(
+            Backup(plan, "backup-newer", DateTimeOffset.UtcNow) with { SchemaVersion = 99 },
+            CancellationToken.None);
+        await backups.SaveAsync(
+            Backup(
+                plan with
+                {
+                    OperationId = Guid.NewGuid(),
+                    CorrelationId = Guid.NewGuid()
+                },
+                "backup-corrupt",
+                DateTimeOffset.UtcNow),
+            CancellationToken.None);
+        await database.ExecuteAsync(
+            """
+            UPDATE OperationBackups SET SnapshotJson = '{not-json'
+            WHERE BackupIdentifier = 'backup-corrupt';
+            UPDATE BackupCatalogMetadata SET IsCorrupt = 1, SafeIssue = 'Corrupt test record.'
+            WHERE BackupIdentifier = 'backup-corrupt';
+            """);
+
+        var newer = await catalog.QueryAsync(
+            BackupQuery(compatibility: BackupCompatibility.NewerSchema),
+            CancellationToken.None);
+        var corrupt = await catalog.QueryAsync(
+            BackupQuery(compatibility: BackupCompatibility.Corrupt),
+            CancellationToken.None);
+
+        Assert.Equal("backup-newer", Assert.Single(newer.Items).BackupIdentifier);
+        Assert.Equal(BackupCompatibility.NewerSchema, newer.Items[0].Compatibility);
+        Assert.Equal("backup-corrupt", Assert.Single(corrupt.Items).BackupIdentifier);
+        Assert.Equal(BackupCompatibility.Corrupt, corrupt.Items[0].Compatibility);
+    }
+
+    [Fact]
+    public async Task SafeExportsAreVersionedPagedAndExcludeSensitiveFields()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var history = new SqliteOperationHistoryRepository(database.ConnectionFactory);
+        var query = new SqliteOperationalRecoveryRepository(database.ConnectionFactory);
+        var plan = UiOperationTestData.Plan() with { AuditReason = "Routine test" };
+        await history.AddAsync(Entry(plan, ChannelOperationState.Completed, null), CancellationToken.None);
+        var exporter = new DiscordControlCenter.Application.Operations.OperationExportService(
+            query,
+            new ExportBackupCatalog(query));
+        await using var json = new MemoryStream();
+        await using var csv = new MemoryStream();
+
+        var jsonCount = await exporter.ExportHistoryJsonAsync(
+            json,
+            HistoryQuery(),
+            CancellationToken.None);
+        var csvCount = await exporter.ExportHistoryCsvAsync(
+            csv,
+            HistoryQuery(),
+            CancellationToken.None);
+        var jsonText = Encoding.UTF8.GetString(json.ToArray());
+        var csvText = Encoding.UTF8.GetString(csv.ToArray());
+
+        Assert.Equal(1, jsonCount);
+        Assert.Equal(1, csvCount);
+        Assert.Contains("\"SchemaVersion\": 1", jsonText, StringComparison.Ordinal);
+        Assert.Contains(plan.OperationId.ToString(), jsonText, StringComparison.Ordinal);
+        Assert.Contains(plan.OperationId.ToString(), csvText, StringComparison.Ordinal);
+        Assert.DoesNotContain("AuthorizationHeader", jsonText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ProtectedToken", jsonText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("PlanJson", jsonText, StringComparison.Ordinal);
+        Assert.DoesNotContain("ResultJson", jsonText, StringComparison.Ordinal);
+    }
+
+    private static ServerStructureBackup Backup(
+        OperationPlan plan,
+        string identifier,
+        DateTimeOffset createdAt) =>
+        new(
+            identifier,
+            plan.OperationId,
+            plan.CorrelationId,
+            plan.BotProfileId,
+            plan.ServerId,
+            plan.ServerNameSnapshot,
+            plan.SourceExplorerSequence,
+            createdAt,
+            plan.ExactBeforeState)
+        {
+            BackupReason = "Test structural backup",
+            SourceOperationType = plan.OperationType
+        };
+
+    private static BackupQuery BackupQuery(
+        string? search = null,
+        BackupCompatibility? compatibility = null,
+        int pageNumber = 1,
+        int pageSize = 50) =>
+        new(
+            search,
+            null,
+            null,
+            null,
+            null,
+            null,
+            compatibility,
+            BackupSort.Newest,
+            pageNumber,
+            pageSize);
+
+    private static OperationHistoryQuery HistoryQuery() =>
+        new(
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            OperationHistorySort.Newest,
+            1,
+            50);
 
     private static OperationHistoryEntry Entry(
         OperationPlan plan,
@@ -202,6 +471,22 @@ public sealed class OperationPersistenceTests
             return values;
         }
 
+        public async Task ExecuteAsync(string sql)
+        {
+            await using var connection = await ConnectionFactory.OpenAsync(CancellationToken.None);
+            await using var command = connection.CreateCommand();
+            command.CommandText = sql;
+            await command.ExecuteNonQueryAsync(CancellationToken.None);
+        }
+
+        public async Task InitializeAsync()
+        {
+            var initializer = new SqliteDatabaseInitializer(
+                ConnectionFactory,
+                NullLogger<SqliteDatabaseInitializer>.Instance);
+            await initializer.InitializeAsync(CancellationToken.None);
+        }
+
         public ValueTask DisposeAsync()
         {
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
@@ -213,6 +498,47 @@ public sealed class OperationPersistenceTests
             return ValueTask.CompletedTask;
         }
     }
+}
+
+internal sealed class ExportBackupCatalog(IBackupCatalogRepository repository) :
+    DiscordControlCenter.Application.Operations.IBackupCatalogService
+{
+    public Task<PagedResult<BackupCatalogItem>> QueryAsync(
+        BackupQuery query,
+        CancellationToken cancellationToken) =>
+        repository.QueryAsync(query, cancellationToken);
+
+    public Task<BackupDetail?> GetDetailAsync(
+        string backupIdentifier,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    public Task SetPinnedAsync(
+        string backupIdentifier,
+        bool pinned,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    public Task DeleteLocalAsync(
+        IReadOnlyCollection<string> backupIdentifiers,
+        string safeReason,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    public Task<BackupRetentionPolicy> GetRetentionPolicyAsync(
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    public Task SaveRetentionPolicyAsync(
+        BackupRetentionPolicy policy,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    public Task<BackupCleanupPreview> PreviewCleanupAsync(
+        BackupRetentionPolicy policy,
+        DateTimeOffset now,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
 }
 
 internal static class UiOperationTestData

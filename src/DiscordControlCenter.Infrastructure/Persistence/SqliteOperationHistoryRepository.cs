@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using DiscordControlCenter.Core.Operations;
 
 namespace DiscordControlCenter.Infrastructure.Persistence;
@@ -159,7 +160,7 @@ public sealed class SqliteOperationHistoryRepository(
         return entries;
     }
 
-    private static OperationHistoryEntry Read(Microsoft.Data.Sqlite.SqliteDataReader reader) =>
+    internal static OperationHistoryEntry Read(Microsoft.Data.Sqlite.SqliteDataReader reader) =>
         new(
             Guid.Parse(reader.GetString(0)),
             Guid.Parse(reader.GetString(1)),
@@ -190,7 +191,7 @@ public sealed class SqliteOperationHistoryRepository(
             CultureInfo.InvariantCulture,
             DateTimeStyles.RoundtripKind);
 
-    private const string SelectColumns =
+    internal const string SelectColumns =
         """
         SELECT OperationId, CorrelationId, PlanType, BotProfileId, ServerId, ServerName,
                TargetIds, SafeDisplayNames, CreatedAt, StartedAt, FinishedAt, State,
@@ -209,7 +210,10 @@ public sealed class SqliteOperationBackupRepository(
     {
         var json = OperationJson.Serialize(backup);
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (Microsoft.Data.Sqlite.SqliteTransaction)
+            await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText =
             """
             INSERT INTO OperationBackups
@@ -229,6 +233,32 @@ public sealed class SqliteOperationBackupRepository(
         command.Parameters.AddWithValue("$createdAt", backup.CreatedAt.ToString("O"));
         command.Parameters.AddWithValue("$snapshotJson", json);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        await using var metadataCommand = connection.CreateCommand();
+        metadataCommand.Transaction = transaction;
+        metadataCommand.CommandText =
+            """
+            INSERT INTO BackupCatalogMetadata
+                (BackupIdentifier, BackupReason, SourceOperationType, CategoryCount,
+                 ChannelCount, PermissionOverwriteCount, SchemaVersion, IsPinned,
+                 SizeBytes, IsCorrupt, SafeIssue)
+            VALUES
+                ($identifier, $reason, $sourceType, $categoryCount, $channelCount,
+                 $overwriteCount, $schemaVersion, 0, $sizeBytes, 0, NULL);
+            """;
+        var categoryCount = backup.Channels.Count(channel => channel.Kind == Core.Explorer.ChannelKind.Category);
+        metadataCommand.Parameters.AddWithValue("$identifier", backup.BackupIdentifier);
+        metadataCommand.Parameters.AddWithValue("$reason", backup.BackupReason);
+        metadataCommand.Parameters.AddWithValue("$sourceType", backup.SourceOperationType.ToString());
+        metadataCommand.Parameters.AddWithValue("$categoryCount", categoryCount);
+        metadataCommand.Parameters.AddWithValue("$channelCount", backup.Channels.Length - categoryCount);
+        metadataCommand.Parameters.AddWithValue(
+            "$overwriteCount",
+            backup.Channels.Sum(channel => channel.PermissionOverwrites.Length));
+        metadataCommand.Parameters.AddWithValue("$schemaVersion", backup.SchemaVersion);
+        metadataCommand.Parameters.AddWithValue("$sizeBytes", Encoding.UTF8.GetByteCount(json));
+        await metadataCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<ServerStructureBackup?> GetAsync(

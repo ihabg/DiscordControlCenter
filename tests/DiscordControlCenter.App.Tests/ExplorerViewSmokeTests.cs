@@ -112,6 +112,35 @@ public sealed class ExplorerViewSmokeTests
                     {
                         DataContext = operationCenterViewModel
                     };
+                    var backupPlan = UiOperationTestData.Plan();
+                    var backup = new ServerStructureBackup(
+                        "backup-ui-smoke",
+                        backupPlan.OperationId,
+                        backupPlan.CorrelationId,
+                        backupPlan.BotProfileId,
+                        backupPlan.ServerId,
+                        backupPlan.ServerNameSnapshot,
+                        backupPlan.SourceExplorerSequence,
+                        DateTimeOffset.UtcNow,
+                        backupPlan.ExactBeforeState);
+                    var backupExplorer = new UiExplorer();
+                    using var backupBrowserViewModel = new BackupBrowserViewModel(
+                        new UiBackupCatalog(backup),
+                        new UiRecreatePlanner(),
+                        new UiPlanSubmission(),
+                        new UiOperationExport(),
+                        backupExplorer);
+                    backupBrowserViewModel.SetContext(
+                        backupExplorer.Snapshot.BotProfileId,
+                        backupExplorer.Snapshot.Servers[0].Id,
+                        "Test bot");
+                    backupBrowserViewModel.InitializeAsync(CancellationToken.None)
+                        .GetAwaiter()
+                        .GetResult();
+                    var backupBrowserView = new BackupBrowserView
+                    {
+                        DataContext = backupBrowserViewModel
+                    };
                     var panel = new System.Windows.Controls.StackPanel();
                     panel.Children.Add(serverView);
                     panel.Children.Add(channelView);
@@ -120,6 +149,7 @@ public sealed class ExplorerViewSmokeTests
                     panel.Children.Add(permissionsView);
                     panel.Children.Add(voiceView);
                     panel.Children.Add(operationCenterView);
+                    panel.Children.Add(backupBrowserView);
                     var window = new Window
                     {
                         Width = 1400,
@@ -477,5 +507,118 @@ public sealed class ExplorerViewSmokeTests
                     updated.Id,
                     Snapshot));
         }
+    }
+
+    private sealed class UiBackupCatalog(ServerStructureBackup backup) : IBackupCatalogService
+    {
+        private readonly BackupCatalogItem _item = new(
+            backup.BackupIdentifier,
+            backup.OperationId,
+            backup.CorrelationId,
+            backup.BotProfileId,
+            backup.ServerId,
+            backup.ServerName,
+            backup.CreatedAt,
+            "UI smoke backup",
+            backup.SourceOperationType,
+            backup.Channels.Count(channel => channel.Kind == ChannelKind.Category),
+            backup.Channels.Count(channel => channel.Kind != ChannelKind.Category),
+            backup.Channels.Sum(channel => channel.PermissionOverwrites.Length),
+            backup.ExplorerSequence,
+            backup.SchemaVersion,
+            false,
+            1024,
+            BackupCompatibility.FullySupported,
+            true,
+            true,
+            null);
+
+        public Task<PagedResult<BackupCatalogItem>> QueryAsync(
+            BackupQuery query,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(
+                new PagedResult<BackupCatalogItem>(
+                    [_item],
+                    query.PageNumber,
+                    query.PageSize,
+                    1));
+
+        public Task<BackupDetail?> GetDetailAsync(
+            string backupIdentifier,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<BackupDetail?>(
+                new(
+                    _item,
+                    backup,
+                    [],
+                    [],
+                    ["Messages and original IDs"],
+                    "{}"));
+
+        public Task SetPinnedAsync(
+            string backupIdentifier,
+            bool pinned,
+            CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public Task DeleteLocalAsync(
+            IReadOnlyCollection<string> backupIdentifiers,
+            string safeReason,
+            CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public Task<BackupRetentionPolicy> GetRetentionPolicyAsync(
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new BackupRetentionPolicy(true, null, null, true, null));
+
+        public Task SaveRetentionPolicyAsync(
+            BackupRetentionPolicy policy,
+            CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public Task<BackupCleanupPreview> PreviewCleanupAsync(
+            BackupRetentionPolicy policy,
+            DateTimeOffset now,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new BackupCleanupPreview([], 0, now));
+    }
+
+    private sealed class UiRecreatePlanner : IRecreateStructurePlanner
+    {
+        public ChannelPlanResult Plan(RecreateStructureRequest request) =>
+            ChannelPlanResult.Failure("Not used by UI smoke test.");
+
+        public OperationPreview BuildPreview(OperationPlan plan, string botDisplayName) =>
+            UiOperationTestData.Preview(plan);
+    }
+
+    private sealed class UiPlanSubmission : IOperationPlanSubmissionService
+    {
+        public Task<bool> ConfirmAndQueueAsync(
+            OperationPlan plan,
+            OperationPreview preview,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(false);
+    }
+
+    private sealed class UiOperationExport : IOperationExportService
+    {
+        public Task<int> ExportHistoryJsonAsync(
+            Stream destination,
+            OperationHistoryQuery query,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(0);
+
+        public Task<int> ExportHistoryCsvAsync(
+            Stream destination,
+            OperationHistoryQuery query,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(0);
+
+        public Task<int> ExportBackupMetadataJsonAsync(
+            Stream destination,
+            BackupQuery query,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(0);
     }
 }

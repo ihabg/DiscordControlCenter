@@ -285,11 +285,28 @@ public sealed class ChannelOperationExecutionTests
         Assert.DoesNotContain("token", entry.PlanJson, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task CheckpointFailureStopsBeforeAnotherDiscordMutation()
+    {
+        var history = new FailingCheckpointHistoryRepository(failOnUpdate: 2);
+        var writer = new ScriptedChannelWriter(Success(701), Success(702));
+        var executor = CreateExecutor(writer, history: history);
+        var plan = CreatePlan(2);
+
+        var result = await executor.ExecuteAsync(plan, null, CancellationToken.None);
+
+        Assert.Equal(ChannelOperationState.ReconciliationRequired, result.State);
+        Assert.Equal("HISTORY_CHECKPOINT_FAILED", result.Failure!.SafeCode);
+        Assert.Equal(1, writer.CallCount);
+        var persisted = await history.GetAsync(plan.OperationId, CancellationToken.None);
+        Assert.Equal(ChannelOperationState.ReconciliationRequired, persisted!.State);
+    }
+
     private static ChannelOperationExecutor CreateExecutor(
         IDiscordChannelWriter writer,
         IChannelOperationPreflightService? preflight = null,
         IOperationReconciliationService? reconciliation = null,
-        MemoryHistoryRepository? history = null,
+        IOperationHistoryRepository? history = null,
         MemoryBackupRepository? backups = null) =>
         new(
             preflight ?? new StubPreflight(),
@@ -537,4 +554,51 @@ internal sealed class MemoryBackupRepository : IOperationBackupRepository
         _items.TryGetValue(backupIdentifier, out var backup);
         return Task.FromResult(backup);
     }
+}
+
+internal sealed class FailingCheckpointHistoryRepository(int failOnUpdate) :
+    IOperationHistoryRepository
+{
+    private readonly ConcurrentDictionary<Guid, OperationHistoryEntry> _items = new();
+    private int _updateCount;
+
+    public Task AddAsync(OperationHistoryEntry entry, CancellationToken cancellationToken)
+    {
+        _items[entry.OperationId] = entry;
+        return Task.CompletedTask;
+    }
+
+    public Task UpdateAsync(OperationHistoryEntry entry, CancellationToken cancellationToken)
+    {
+        if (Interlocked.Increment(ref _updateCount) == failOnUpdate)
+        {
+            throw new IOException("simulated checkpoint failure");
+        }
+
+        _items[entry.OperationId] = entry;
+        return Task.CompletedTask;
+    }
+
+    public Task<OperationHistoryEntry?> GetAsync(
+        Guid operationId,
+        CancellationToken cancellationToken)
+    {
+        _items.TryGetValue(operationId, out var entry);
+        return Task.FromResult(entry);
+    }
+
+    public Task<IReadOnlyList<OperationHistoryEntry>> GetRecentAsync(
+        int count,
+        CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<OperationHistoryEntry>>(
+            _items.Values.Take(count).ToArray());
+
+    public Task<IReadOnlyList<OperationHistoryEntry>> GetInterruptedAsync(
+        CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<OperationHistoryEntry>>(
+            _items.Values.Where(entry =>
+                entry.State is ChannelOperationState.Pending
+                    or ChannelOperationState.Running
+                    or ChannelOperationState.Waiting
+                    or ChannelOperationState.Cancelling).ToArray());
 }

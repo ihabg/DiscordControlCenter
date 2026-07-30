@@ -1,0 +1,301 @@
+<UserControl x:Class="DiscordControlCenter.App.Views.BackupBrowserView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+             Background="{StaticResource ContentBackgroundBrush}">
+    <Grid Margin="24,22">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="2*" MinWidth="340" />
+            <ColumnDefinition Width="12" />
+            <ColumnDefinition Width="3*" MinWidth="430" />
+        </Grid.ColumnDefinitions>
+        <Border Style="{StaticResource PanelSurfaceStyle}">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top">
+                    <TextBlock Text="Structural backups" Style="{StaticResource SectionHeadingStyle}" />
+                    <TextBlock Text="Local metadata only; browsing and cleanup never mutate Discord."
+                               Style="{StaticResource MutedTextStyle}" Margin="0,3,0,12" />
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                                 automation:AutomationProperties.Name="Search backups"
+                                 ToolTip="Server name or ID, correlation ID, or backup ID" />
+                        <Button Grid.Column="1" Content="Search" Command="{Binding RefreshCommand}"
+                                Margin="8,0,0,0" />
+                    </Grid>
+                    <Expander Header="Filters and sorting" Margin="0,8,0,0">
+                        <Grid Margin="0,8,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="8" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <TextBox Text="{Binding BotFilter, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="Optional bot profile GUID"
+                                     automation:AutomationProperties.Name="Backup bot filter" />
+                            <TextBox Grid.Column="2"
+                                     Text="{Binding ServerFilter, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="Optional Discord server ID"
+                                     automation:AutomationProperties.Name="Backup server filter" />
+                            <TextBox Grid.Row="1"
+                                     Text="{Binding CreatedFromFilter, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="Created from date"
+                                     Margin="0,7,0,0"
+                                     automation:AutomationProperties.Name="Backup created from filter" />
+                            <TextBox Grid.Row="1" Grid.Column="2"
+                                     Text="{Binding CreatedToFilter, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="Created to date"
+                                     Margin="0,7,0,0"
+                                     automation:AutomationProperties.Name="Backup created to filter" />
+                            <ComboBox Grid.Row="2"
+                                      ItemsSource="{Binding SourceOperationOptions}"
+                                      SelectedItem="{Binding SourceOperationFilter}"
+                                      Margin="0,7,0,0"
+                                      automation:AutomationProperties.Name="Backup source operation filter" />
+                            <StackPanel Grid.Row="2" Grid.Column="2"
+                                        Orientation="Horizontal"
+                                        Margin="0,7,0,0">
+                                <ComboBox ItemsSource="{Binding CompatibilityOptions}"
+                                          SelectedItem="{Binding CompatibilityFilter}"
+                                          MinWidth="110"
+                                          automation:AutomationProperties.Name="Backup compatibility filter" />
+                                <ComboBox ItemsSource="{Binding SortOptions}"
+                                          SelectedItem="{Binding SelectedSort}"
+                                          MinWidth="90"
+                                          Margin="6,0,0,0"
+                                          automation:AutomationProperties.Name="Backup sort order" />
+                            </StackPanel>
+                        </Grid>
+                    </Expander>
+                    <StackPanel Orientation="Horizontal" Margin="0,10,0,10">
+                        <Button Content="Previous" Command="{Binding PreviousPageCommand}" />
+                        <TextBlock Text="{Binding PageText}" Style="{StaticResource SecondaryTextStyle}"
+                                   Margin="12,7" />
+                        <Button Content="Next" Command="{Binding NextPageCommand}" />
+                        <Button Content="Retention preview" Command="{Binding CleanupCommand}"
+                                Margin="12,0,0,0" Style="{StaticResource SecondaryButtonStyle}" />
+                        <Button Content="Export JSON" Command="{Binding ExportCommand}"
+                                Margin="6,0,0,0" Style="{StaticResource SecondaryButtonStyle}" />
+                    </StackPanel>
+                </StackPanel>
+                <ListBox ItemsSource="{Binding Backups}" SelectedItem="{Binding SelectedBackup}"
+                         VirtualizingPanel.IsVirtualizing="True"
+                         VirtualizingPanel.VirtualizationMode="Recycling"
+                         automation:AutomationProperties.Name="Paged structural backups">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Margin="8">
+                                <TextBlock Text="{Binding ServerName}" Style="{StaticResource BodyTextStyle}"
+                                           FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Style="{StaticResource MutedTextStyle}">
+                                    <Run Text="{Binding CreatedAt, Mode=OneWay}" />
+                                    <Run Text=" • " />
+                                    <Run Text="{Binding Compatibility, Mode=OneWay}" />
+                                    <Run Text=" • Pinned: " />
+                                    <Run Text="{Binding IsPinned, Mode=OneWay}" />
+                                </TextBlock>
+                                <TextBlock Text="{Binding BackupIdentifier}" Style="{StaticResource MutedTextStyle}"
+                                           TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+                <TextBlock Text="{Binding ErrorMessage}"
+                           Style="{StaticResource SecondaryTextStyle}"
+                           TextWrapping="Wrap"
+                           Margin="8"
+                           Visibility="{Binding HasError,
+                                                Converter={StaticResource BooleanToVisibilityConverter}}" />
+            </DockPanel>
+        </Border>
+        <Border Grid.Column="2" Style="{StaticResource PanelSurfaceStyle}">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <TextBlock Text="Backup details" Style="{StaticResource PageHeadingStyle}" />
+                    <TextBlock Text="{Binding DetailSummary}" Style="{StaticResource SecondaryTextStyle}"
+                               TextWrapping="Wrap" Margin="0,5,0,16" />
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="Pin / unpin" Command="{Binding PinCommand}" />
+                        <Button Content="Recreate structure…" Command="{Binding RecreateCommand}"
+                                Margin="8,0" />
+                        <Button Content="Delete local backup" Command="{Binding DeleteCommand}"
+                                Style="{StaticResource DangerButtonStyle}" />
+                    </StackPanel>
+                    <TextBlock Text="Replacement resources receive new Discord IDs. Messages, threads, pins, links, webhooks, invites, history, and external references are not recovered."
+                               Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" Margin="0,18,0,12" />
+                    <TextBlock Text="{Binding Detail.Catalog.SafeIssue}" Style="{StaticResource SecondaryTextStyle}"
+                               TextWrapping="Wrap" />
+                    <UniformGrid Columns="2" Margin="0,12,0,0">
+                        <StackPanel Margin="0,0,12,10">
+                            <TextBlock Text="BACKUP ID" Style="{StaticResource DetailLabelStyle}" />
+                            <TextBlock Text="{Binding Detail.Catalog.BackupIdentifier}"
+                                       Style="{StaticResource DetailValueStyle}" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <StackPanel Margin="0,0,0,10">
+                            <TextBlock Text="CORRELATION ID" Style="{StaticResource DetailLabelStyle}" />
+                            <TextBlock Text="{Binding Detail.Catalog.CorrelationId}"
+                                       Style="{StaticResource DetailValueStyle}" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <StackPanel Margin="0,0,12,10">
+                            <TextBlock Text="OPERATION ID" Style="{StaticResource DetailLabelStyle}" />
+                            <TextBlock Text="{Binding Detail.Catalog.OperationId}"
+                                       Style="{StaticResource DetailValueStyle}" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <StackPanel Margin="0,0,0,10">
+                            <TextBlock Text="SOURCE / SCHEMA" Style="{StaticResource DetailLabelStyle}" />
+                            <TextBlock Style="{StaticResource DetailValueStyle}">
+                                <Run Text="{Binding Detail.Catalog.SourceOperationType, Mode=OneWay}" />
+                                <Run Text=" / v" />
+                                <Run Text="{Binding Detail.Catalog.SchemaVersion, Mode=OneWay}" />
+                            </TextBlock>
+                        </StackPanel>
+                    </UniformGrid>
+
+                    <Expander Header="Recreate structure plan" IsExpanded="True" Margin="0,10,0,0">
+                        <StackPanel Margin="0,8,0,0">
+                            <TextBlock Text="Choose supported resources, proposed names, category mapping, overwrite mapping, and a partial-failure policy. The next screen is the immutable exact preview and confirmation."
+                                       Style="{StaticResource SecondaryTextStyle}"
+                                       TextWrapping="Wrap" />
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <ComboBox ItemsSource="{Binding NamingModes}"
+                                          SelectedItem="{Binding SelectedNamingMode}"
+                                          MinWidth="170"
+                                          automation:AutomationProperties.Name="Replacement naming mode" />
+                                <Button Content="Apply naming"
+                                        Command="{Binding ApplyNamingCommand}"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Margin="8,0,0,0" />
+                            </StackPanel>
+                            <ItemsControl ItemsSource="{Binding RecreateResources}" Margin="0,8,0,0">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Style="{StaticResource PanelSurfaceStyle}"
+                                                Padding="10" Margin="0,0,0,6">
+                                            <StackPanel>
+                                                <CheckBox IsChecked="{Binding Include}"
+                                                          Content="{Binding SupportText}"
+                                                          automation:AutomationProperties.Name="Include backup resource" />
+                                                <TextBlock Style="{StaticResource MutedTextStyle}" Margin="0,3,0,5">
+                                                    <Run Text="{Binding KindText, Mode=OneWay}" />
+                                                    <Run Text=" • " />
+                                                    <Run Text="{Binding OriginalName, Mode=OneWay}" />
+                                                    <Run Text=" • Parent: " />
+                                                    <Run Text="{Binding ParentText, Mode=OneWay}" />
+                                                </TextBlock>
+                                                <TextBox Text="{Binding ProposedName, UpdateSourceTrigger=PropertyChanged}"
+                                                         automation:AutomationProperties.Name="Proposed replacement name" />
+                                                <ComboBox ItemsSource="{Binding CategoryOptions}"
+                                                          SelectedItem="{Binding SelectedCategoryOption}"
+                                                          DisplayMemberPath="Label"
+                                                          Margin="0,6,0,0"
+                                                          Visibility="{Binding IsCategory,
+                                                                               Converter={StaticResource BooleanToVisibilityConverter}}"
+                                                          automation:AutomationProperties.Name="Existing category mapping" />
+                                                <CheckBox IsChecked="{Binding RecreateUncategorized}"
+                                                          Content="Create as uncategorized"
+                                                          Margin="0,6,0,0"
+                                                          automation:AutomationProperties.Name="Recreate channel as uncategorized" />
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <CheckBox IsChecked="{Binding IncludePermissionOverwrites}"
+                                      Content="Include explicitly mapped permission overwrites"
+                                      Margin="0,8,0,0"
+                                      automation:AutomationProperties.Name="Include mapped permission overwrites" />
+                            <ItemsControl ItemsSource="{Binding RoleMappings}" Margin="0,6,0,0">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,0,0,6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="2*" />
+                                                <ColumnDefinition Width="3*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding OriginalText}"
+                                                       Style="{StaticResource SecondaryTextStyle}"
+                                                       TextWrapping="Wrap" />
+                                            <ComboBox Grid.Column="1"
+                                                      ItemsSource="{Binding Options}"
+                                                      SelectedItem="{Binding SelectedOption}"
+                                                      DisplayMemberPath="Label"
+                                                      Margin="8,0,0,0"
+                                                      automation:AutomationProperties.Name="Permission target mapping" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="Member-specific overwrites default to Skip because member identity is not inferred."
+                                       Style="{StaticResource MutedTextStyle}"
+                                       TextWrapping="Wrap" Margin="0,3,0,6" />
+                            <ComboBox ItemsSource="{Binding CompensationPolicies}"
+                                      SelectedItem="{Binding SelectedCompensationPolicy}"
+                                      automation:AutomationProperties.Name="Recreation compensation policy" />
+                        </StackPanel>
+                    </Expander>
+
+                    <Expander Header="Local retention policy" Margin="0,14,0,0">
+                        <StackPanel Margin="0,8,0,0">
+                            <CheckBox IsChecked="{Binding KeepIndefinitely}"
+                                      Content="Keep indefinitely (default; no automatic deletion)" />
+                            <UniformGrid Columns="2" Margin="0,7,0,0">
+                                <TextBox Text="{Binding MaximumAgeDays}"
+                                         ToolTip="Maximum age in days, or blank" />
+                                <TextBox Text="{Binding NewestPerServer}"
+                                         ToolTip="Newest backups to keep per server, or blank"
+                                         Margin="7,0,0,0" />
+                                <TextBox Text="{Binding MaximumStorageMegabytes}"
+                                         ToolTip="Maximum local backup storage in MB, or blank"
+                                         Margin="0,7,0,0" />
+                                <CheckBox IsChecked="{Binding PreserveFailedBackups}"
+                                          Content="Preserve failed/partial"
+                                          Margin="7,8,0,0" />
+                            </UniformGrid>
+                            <TextBlock Text="Retention is evaluated only during a confirmed local cleanup. Pinned backups are always protected."
+                                       Style="{StaticResource MutedTextStyle}"
+                                       TextWrapping="Wrap" Margin="0,7,0,0" />
+                        </StackPanel>
+                    </Expander>
+                    <TextBlock Text="Unsupported resources" Style="{StaticResource SectionHeadingStyle}"
+                               Margin="0,18,0,8" />
+                    <ItemsControl ItemsSource="{Binding Detail.UnsupportedProperties}" />
+                    <TextBlock Text="Missing role IDs" Style="{StaticResource SectionHeadingStyle}"
+                               Margin="0,18,0,8" />
+                    <ItemsControl ItemsSource="{Binding Detail.MissingRoleIds}" />
+                    <TextBlock Text="Captured channels" Style="{StaticResource SectionHeadingStyle}"
+                               Margin="0,18,0,8" />
+                    <ItemsControl ItemsSource="{Binding Detail.Backup.Channels}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Style="{StaticResource PanelSurfaceStyle}" Margin="0,0,0,6">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Name}" Style="{StaticResource BodyTextStyle}" />
+                                        <TextBlock Style="{StaticResource MutedTextStyle}">
+                                            <Run Text="{Binding Kind, Mode=OneWay}" />
+                                            <Run Text=" • Position " />
+                                            <Run Text="{Binding Position, Mode=OneWay}" />
+                                            <Run Text=" • Parent " />
+                                            <Run Text="{Binding ParentCategoryName, Mode=OneWay, TargetNullValue=Uncategorized}" />
+                                        </TextBlock>
+                                        <TextBlock Style="{StaticResource MutedTextStyle}">
+                                            <Run Text="Permission overwrites: " />
+                                            <Run Text="{Binding PermissionOverwrites.Length, Mode=OneWay}" />
+                                        </TextBlock>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+    </Grid>
+</UserControl>
