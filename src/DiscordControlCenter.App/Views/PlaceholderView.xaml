@@ -1,0 +1,12 @@
+<UserControl x:Class="DiscordControlCenter.App.Views.PlaceholderView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource ContentBackgroundBrush}">
+    <Grid>
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="520">
+            <TextBlock Text="{Binding Title}" Style="{StaticResource PageHeadingStyle}" FontSize="28" HorizontalAlignment="Center" />
+            <TextBlock Text="{Binding Description}" TextWrapping="Wrap" TextAlignment="Center"
+                       Style="{StaticResource SecondaryTextStyle}" Margin="0,12,0,0" />
+        </StackPanel>
+    </Grid>
+</UserControl>

@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/DiscordControlCenter.App/DiscordControlCenter.App.csproj" />
+    <Project Path="src/DiscordControlCenter.Application/DiscordControlCenter.Application.csproj" />
+    <Project Path="src/DiscordControlCenter.Core/DiscordControlCenter.Core.csproj" />
+    <Project Path="src/DiscordControlCenter.Discord/DiscordControlCenter.Discord.csproj" />
+    <Project Path="src/DiscordControlCenter.Infrastructure/DiscordControlCenter.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/DiscordControlCenter.App.Tests/DiscordControlCenter.App.Tests.csproj" />
+    <Project Path="tests/DiscordControlCenter.Application.Tests/DiscordControlCenter.Application.Tests.csproj" />
+    <Project Path="tests/DiscordControlCenter.Core.Tests/DiscordControlCenter.Core.Tests.csproj" />
+  </Folder>
+</Solution>

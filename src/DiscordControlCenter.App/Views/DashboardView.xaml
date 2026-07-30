@@ -1,0 +1,116 @@
+<UserControl x:Class="DiscordControlCenter.App.Views.DashboardView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource ContentBackgroundBrush}">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="30,28">
+            <TextBlock Text="System overview" Style="{StaticResource PageHeadingStyle}" />
+            <TextBlock Text="Live health across bot connections and available servers."
+                       Style="{StaticResource SecondaryTextStyle}" Margin="0,5,0,24" />
+
+            <Border Background="{StaticResource SelectionBackgroundBrush}" BorderBrush="{StaticResource AccentBrush}" BorderThickness="1"
+                    CornerRadius="9" Padding="16" Margin="0,0,0,18">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding TotalBots}" Value="0">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <StackPanel>
+                    <TextBlock Text="No bots have been added yet" Style="{StaticResource SectionHeadingStyle}" FontSize="14" />
+                    <TextBlock Text="Open Bot Manager from the left navigation, choose Add bot, and enter an official bot token. The token will be validated and encrypted for this Windows account."
+                               Foreground="{StaticResource TextPrimaryBrush}" TextWrapping="Wrap" Margin="0,5,0,0" />
+                </StackPanel>
+            </Border>
+
+            <UniformGrid Columns="4" Margin="0,0,0,22">
+                <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="1" CornerRadius="10" Padding="20" Margin="0,0,12,0">
+                    <StackPanel>
+                        <TextBlock Text="CONNECTED BOTS" Style="{StaticResource TableHeaderTextStyle}" />
+                        <TextBlock Text="{Binding ConnectedBots}" Style="{StaticResource PageHeadingStyle}" FontSize="31" Margin="0,8,0,0" />
+                    </StackPanel>
+                </Border>
+                <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="1" CornerRadius="10" Padding="20" Margin="0,0,12,0">
+                    <StackPanel>
+                        <TextBlock Text="DISCONNECTED" Style="{StaticResource TableHeaderTextStyle}" />
+                        <TextBlock Text="{Binding DisconnectedBots}" Style="{StaticResource PageHeadingStyle}" FontSize="31" Margin="0,8,0,0" />
+                    </StackPanel>
+                </Border>
+                <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="1" CornerRadius="10" Padding="20" Margin="0,0,12,0">
+                    <StackPanel>
+                        <TextBlock Text="AVAILABLE SERVERS" Style="{StaticResource TableHeaderTextStyle}" />
+                        <TextBlock Text="{Binding AvailableServers}" Style="{StaticResource PageHeadingStyle}" FontSize="31" Margin="0,8,0,0" />
+                    </StackPanel>
+                </Border>
+                <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="1" CornerRadius="10" Padding="20">
+                    <StackPanel>
+                        <TextBlock Text="AVERAGE LATENCY" Style="{StaticResource TableHeaderTextStyle}" />
+                        <TextBlock Text="{Binding AverageLatency}" Style="{StaticResource PageHeadingStyle}" FontSize="31" Margin="0,8,0,0" />
+                    </StackPanel>
+                </Border>
+            </UniformGrid>
+
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="2*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="1" CornerRadius="10" Padding="22" Margin="0,0,12,0">
+                    <StackPanel>
+                        <TextBlock Text="Recent actions" Style="{StaticResource SectionHeadingStyle}" />
+                        <ItemsControl ItemsSource="{Binding RecentActions}" Margin="0,14,0,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1"
+                                            Padding="0,11">
+                                        <TextBlock Text="{Binding}" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="Actions will appear here after you add or manage a bot."
+                                   Foreground="{StaticResource TextSecondaryBrush}" Margin="0,16,0,0">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding RecentActions.Count}" Value="0">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </StackPanel>
+                </Border>
+                <StackPanel Grid.Column="1">
+                    <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1" CornerRadius="10" Padding="22" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="Connection problems" Style="{StaticResource SecondaryTextStyle}" />
+                            <TextBlock Text="{Binding ConnectionProblems}" Style="{StaticResource PageHeadingStyle}" FontSize="27" Margin="0,7,0,0" />
+                        </StackPanel>
+                    </Border>
+                    <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1" CornerRadius="10" Padding="22">
+                        <StackPanel>
+                            <TextBlock Text="Active voice connections" Style="{StaticResource SecondaryTextStyle}" />
+                            <TextBlock Text="{Binding ActiveVoiceConnections}" Style="{StaticResource PageHeadingStyle}" FontSize="27" Margin="0,7,0,0" />
+                            <TextBlock Text="Voice watchdog foundation is planned for the next phase."
+                                       TextWrapping="Wrap" Style="{StaticResource SecondaryTextStyle}" Margin="0,8,0,0" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

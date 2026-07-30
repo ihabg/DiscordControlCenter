@@ -1,0 +1,286 @@
+<UserControl x:Class="DiscordControlCenter.App.Views.BotsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+             Background="{StaticResource ContentBackgroundBrush}">
+    <Grid Margin="30,26">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="Bot Manager"
+                           Style="{StaticResource PageHeadingStyle}" />
+                <TextBlock Text="Independent, isolated gateway connections for official bot accounts."
+                           Style="{StaticResource SecondaryTextStyle}"
+                           Margin="0,5,0,0" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <Button Content="Disconnect all"
+                        Command="{Binding DisconnectAllCommand}"
+                        Style="{StaticResource SecondaryButtonStyle}"
+                        Margin="0,0,8,0"
+                        ToolTip="Disconnect every active bot connection"
+                        ToolTipService.ShowOnDisabled="True"
+                        automation:AutomationProperties.HelpText="Unavailable when every bot is already disconnected" />
+                <Button Content="Connect all"
+                        Command="{Binding ConnectAllCommand}"
+                        Style="{StaticResource SecondaryButtonStyle}"
+                        Margin="0,0,8,0"
+                        ToolTip="Connect all saved bot profiles"
+                        ToolTipService.ShowOnDisabled="True"
+                        automation:AutomationProperties.HelpText="Unavailable when no bot profiles are saved" />
+                <Button Content="+  Add bot"
+                        Command="{Binding AddBotCommand}"
+                        ToolTip="Add and validate an official Discord bot token"
+                        automation:AutomationProperties.Name="Add bot" />
+            </StackPanel>
+        </Grid>
+
+        <Border Grid.Row="1"
+                Background="{StaticResource WarningSurfaceBrush}"
+                BorderBrush="{StaticResource WarningBorderBrush}"
+                BorderThickness="1"
+                CornerRadius="7"
+                Padding="12"
+                Margin="0,18,0,0"
+                Visibility="{Binding IsOffline, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <TextBlock Text="Offline state — all saved bots are disconnected. Profiles and encrypted credentials remain available locally."
+                       Foreground="{StaticResource WarningBrush}"
+                       TextWrapping="Wrap" />
+        </Border>
+
+        <Grid Grid.Row="2" Margin="0,18,0,0">
+            <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                          VerticalScrollBarVisibility="Disabled">
+                <Border MinWidth="1080"
+                        Background="{StaticResource SurfaceBrush}"
+                        BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="10">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="42" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <Grid Background="{StaticResource ElevatedSurfaceBrush}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="2.2*" />
+                                <ColumnDefinition Width="1.2*" />
+                                <ColumnDefinition Width="0.7*" />
+                                <ColumnDefinition Width="0.6*" />
+                                <ColumnDefinition Width="0.8*" />
+                                <ColumnDefinition Width="1.1*" />
+                                <ColumnDefinition Width="360" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="BOT"
+                                       Margin="16,0"
+                                       Style="{StaticResource TableHeaderTextStyle}" />
+                            <TextBlock Grid.Column="1"
+                                       Text="CONNECTION"
+                                       Style="{StaticResource TableHeaderTextStyle}" />
+                            <TextBlock Grid.Column="2"
+                                       Text="LATENCY"
+                                       Style="{StaticResource TableHeaderTextStyle}" />
+                            <TextBlock Grid.Column="3"
+                                       Text="SERVERS"
+                                       Style="{StaticResource TableHeaderTextStyle}" />
+                            <TextBlock Grid.Column="4"
+                                       Text="MASKED TOKEN"
+                                       Style="{StaticResource TableHeaderTextStyle}" />
+                            <TextBlock Grid.Column="5"
+                                       Text="LAST CONNECTED"
+                                       Style="{StaticResource TableHeaderTextStyle}" />
+                            <TextBlock Grid.Column="6"
+                                       Text="ACTIONS"
+                                       Style="{StaticResource TableHeaderTextStyle}" />
+                        </Grid>
+                        <ListBox Grid.Row="1"
+                                 ItemsSource="{Binding BotsView}"
+                                 Foreground="{StaticResource TextPrimaryBrush}"
+                                 Background="Transparent"
+                                 BorderThickness="0"
+                                 ScrollViewer.CanContentScroll="True"
+                                 VirtualizingPanel.IsVirtualizing="True"
+                                 VirtualizingPanel.VirtualizationMode="Recycling"
+                                 automation:AutomationProperties.Name="Saved bots">
+                            <ListBox.ItemContainerStyle>
+                                <StaticResource ResourceKey="DataRowContainerStyle" />
+                            </ListBox.ItemContainerStyle>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Border BorderBrush="{StaticResource BorderBrush}"
+                                            BorderThickness="0,0,0,1"
+                                            Padding="16,13">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="2.2*" />
+                                                <ColumnDefinition Width="1.2*" />
+                                                <ColumnDefinition Width="0.7*" />
+                                                <ColumnDefinition Width="0.6*" />
+                                                <ColumnDefinition Width="0.8*" />
+                                                <ColumnDefinition Width="1.1*" />
+                                                <ColumnDefinition Width="344" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Orientation="Horizontal">
+                                                <Border Width="40"
+                                                        Height="40"
+                                                        CornerRadius="20"
+                                                        Background="{StaticResource ElevatedSurfaceBrush}"
+                                                        ClipToBounds="True">
+                                                    <Image Source="{Binding AvatarUrl}"
+                                                           Stretch="UniformToFill" />
+                                                </Border>
+                                                <StackPanel Margin="11,0,8,0"
+                                                            VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding DisplayName}"
+                                                               Foreground="{StaticResource TextPrimaryBrush}"
+                                                               FontWeight="SemiBold"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               ToolTip="{Binding DisplayName}" />
+                                                    <TextBlock Foreground="{StaticResource TextSecondaryBrush}"
+                                                               FontSize="11"
+                                                               TextTrimming="CharacterEllipsis">
+                                                        <Run Text="{Binding Username, Mode=OneWay}" />
+                                                        <Run Text="  •  " />
+                                                        <Run Text="{Binding UserId, Mode=OneWay}" />
+                                                    </TextBlock>
+                                                </StackPanel>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1"
+                                                        Orientation="Horizontal"
+                                                        VerticalAlignment="Center">
+                                                <Ellipse Width="8"
+                                                         Height="8"
+                                                         Margin="0,0,7,0"
+                                                         Fill="{Binding State, Converter={StaticResource StateToBrushConverter}}" />
+                                                <TextBlock Text="{Binding StateText}"
+                                                           Foreground="{StaticResource TextPrimaryBrush}" />
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="2"
+                                                       Text="{Binding LatencyText}"
+                                                       Foreground="{StaticResource TextPrimaryBrush}"
+                                                       VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="3"
+                                                       Text="{Binding ServerCountText}"
+                                                       Foreground="{StaticResource TextPrimaryBrush}"
+                                                       VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="4"
+                                                       Text="{Binding MaskedToken}"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       FontSize="11"
+                                                       VerticalAlignment="Center"
+                                                       ToolTip="The saved token is encrypted and never displayed" />
+                                            <TextBlock Grid.Column="5"
+                                                       Text="{Binding LastConnectedText}"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       FontSize="11"
+                                                       VerticalAlignment="Center" />
+                                            <StackPanel Grid.Column="6"
+                                                        Orientation="Horizontal"
+                                                        HorizontalAlignment="Right">
+                                                <Button Content="Connect"
+                                                        Command="{Binding ConnectCommand}"
+                                                        Padding="10,7"
+                                                        Margin="0,0,5,0"
+                                                        ToolTip="Connect this bot to the Discord gateway"
+                                                        ToolTipService.ShowOnDisabled="True"
+                                                        automation:AutomationProperties.HelpText="Available when the bot is disconnected or faulted" />
+                                                <Button Content="Disconnect"
+                                                        Command="{Binding DisconnectCommand}"
+                                                        Padding="10,7"
+                                                        Style="{StaticResource SecondaryButtonStyle}"
+                                                        Margin="0,0,5,0"
+                                                        ToolTip="Disconnect this bot from the Discord gateway"
+                                                        ToolTipService.ShowOnDisabled="True"
+                                                        automation:AutomationProperties.HelpText="Unavailable while already disconnected or disconnecting" />
+                                                <Button Content="Details"
+                                                        Command="{Binding ErrorDetailsCommand}"
+                                                        Padding="10,7"
+                                                        Style="{StaticResource SecondaryButtonStyle}"
+                                                        Margin="0,0,5,0"
+                                                        ToolTip="Show the latest connection error"
+                                                        Visibility="{Binding HasError, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                                <Button Content="Replace token"
+                                                        Command="{Binding ReplaceTokenCommand}"
+                                                        Padding="10,7"
+                                                        Style="{StaticResource SecondaryButtonStyle}"
+                                                        Margin="0,0,5,0"
+                                                        ToolTip="Validate and securely replace this bot token"
+                                                        ToolTipService.ShowOnDisabled="True"
+                                                        automation:AutomationProperties.HelpText="Available only while the bot is disconnected or faulted" />
+                                                <Button Content="Remove"
+                                                        Command="{Binding RemoveCommand}"
+                                                        Padding="10,7"
+                                                        Style="{StaticResource DangerButtonStyle}"
+                                                        ToolTip="Permanently remove this local bot profile"
+                                                        ToolTipService.ShowOnDisabled="True"
+                                                        automation:AutomationProperties.HelpText="Available only while the bot is disconnected or faulted" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+                </Border>
+            </ScrollViewer>
+
+            <Border Background="{StaticResource OverlayBackgroundBrush}"
+                    CornerRadius="10"
+                    Visibility="{Binding IsLoading, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <ProgressBar Width="220" Height="4" IsIndeterminate="True" />
+                    <TextBlock Text="Loading bot profiles…"
+                               Style="{StaticResource BodyTextStyle}"
+                               Margin="0,16,0,0" />
+                </StackPanel>
+            </Border>
+
+            <StackPanel HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Visibility="{Binding IsEmpty, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <TextBlock Text="◆"
+                           FontSize="44"
+                           Foreground="{StaticResource AccentBrush}"
+                           HorizontalAlignment="Center" />
+                <TextBlock Text="No bots have been added"
+                           Style="{StaticResource SectionHeadingStyle}"
+                           FontSize="21"
+                           HorizontalAlignment="Center"
+                           Margin="0,12,0,0" />
+                <TextBlock Text="Add an official Discord bot token. It will be validated, encrypted for this Windows user, and kept hidden."
+                           Width="480"
+                           MaxWidth="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=Grid}}"
+                           TextAlignment="Center"
+                           TextWrapping="Wrap"
+                           Style="{StaticResource SecondaryTextStyle}"
+                           Margin="0,8,0,18" />
+                <Button Content="+  Add your first bot"
+                        Command="{Binding AddBotCommand}"
+                        HorizontalAlignment="Center" />
+            </StackPanel>
+
+            <StackPanel HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Visibility="{Binding HasError, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <TextBlock Text="Local data could not be loaded"
+                           Style="{StaticResource SectionHeadingStyle}"
+                           FontSize="20"
+                           HorizontalAlignment="Center" />
+                <TextBlock Text="{Binding ErrorMessage}"
+                           Style="{StaticResource ValidationMessageStyle}"
+                           Margin="0,8,0,16" />
+                <Button Content="Retry"
+                        Command="{Binding RetryLoadCommand}"
+                        HorizontalAlignment="Center" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</UserControl>
