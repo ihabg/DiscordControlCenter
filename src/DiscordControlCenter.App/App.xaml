@@ -17,6 +17,7 @@
             <converters:CachedImageConverter x:Key="CachedImageConverter" />
             <converters:PermissionStatusToBrushConverter x:Key="PermissionStatusToBrushConverter" />
             <converters:PermissionStatusToTextConverter x:Key="PermissionStatusToTextConverter" />
+            <converters:RoleColorConverter x:Key="RoleColorConverter" />
 
             <DataTemplate DataType="{x:Type vm:DashboardViewModel}">
                 <views:DashboardView />
@@ -29,6 +30,18 @@
             </DataTemplate>
             <DataTemplate DataType="{x:Type vm:ChannelsViewModel}">
                 <views:ChannelsView />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:MembersViewModel}">
+                <views:MembersView />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:RolesViewModel}">
+                <views:RolesView />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:PermissionSimulatorViewModel}">
+                <views:PermissionSimulatorView />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:VoiceViewModel}">
+                <views:VoiceView />
             </DataTemplate>
             <DataTemplate DataType="{x:Type vm:PlaceholderViewModel}">
                 <views:PlaceholderView />

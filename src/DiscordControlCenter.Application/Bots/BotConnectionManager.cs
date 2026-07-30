@@ -13,11 +13,13 @@ public sealed class BotConnectionManager(
     IBotProfileRepository repository,
     ITokenProtector tokenProtector,
     IDiscordBotClientFactory clientFactory,
+    IPermissionResolutionService permissionService,
     ILogger<BotConnectionManager> logger) : IBotConnectionManager
     , IBotExplorerService
 {
     private readonly ConcurrentDictionary<Guid, BotRuntime> _runtimes = new();
     private readonly ConcurrentDictionary<Guid, BotConnectionSnapshot> _snapshots = new();
+    private readonly ConcurrentDictionary<Guid, string> _profileNames = new();
     private int _initialized;
     private int _disposed;
 
@@ -36,7 +38,13 @@ public sealed class BotConnectionManager(
         var profiles = await repository.GetAllAsync(cancellationToken).ConfigureAwait(false);
         foreach (var profile in profiles)
         {
-            _snapshots.TryAdd(profile.Id, BotConnectionSnapshot.Disconnected(profile.Id));
+            _profileNames[profile.Id] = profile.DisplayName;
+            _snapshots.TryAdd(
+                profile.Id,
+                BotConnectionSnapshot.Disconnected(profile.Id) with
+                {
+                    FullMemberAccessEnabled = profile.EnableFullMemberAccess
+                });
         }
     }
 
@@ -51,11 +59,12 @@ public sealed class BotConnectionManager(
             return OperationResult.Failure("The bot profile no longer exists.");
         }
 
+        _profileNames[profile.Id] = profile.DisplayName;
         var runtime = _runtimes.GetOrAdd(
             botProfileId,
             id =>
             {
-                var client = clientFactory.Create(id);
+                var client = clientFactory.Create(id, profile.EnableFullMemberAccess);
                 var created = new BotRuntime(id, client);
                 client.StatusChanged += OnClientStatusChanged;
                 client.ExplorerChanged += OnClientExplorerChanged;
@@ -123,7 +132,15 @@ public sealed class BotConnectionManager(
     {
         if (!_runtimes.TryRemove(botProfileId, out var runtime))
         {
-            Publish(BotConnectionSnapshot.Disconnected(botProfileId));
+            var existing = _snapshots.GetValueOrDefault(
+                botProfileId,
+                BotConnectionSnapshot.Disconnected(botProfileId));
+            Publish(existing with
+            {
+                State = BotConnectionState.Disconnected,
+                GatewayLatencyMilliseconds = null,
+                ServerCount = 0
+            });
             return OperationResult.Success();
         }
 
@@ -151,7 +168,7 @@ public sealed class BotConnectionManager(
                     ExplorerCacheUpdateKind.Cleared,
                     null,
                     cacheSnapshot));
-            Publish(BotConnectionSnapshot.Disconnected(botProfileId));
+            Publish(runtime.Client.Snapshot);
             return OperationResult.Success();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -257,6 +274,82 @@ public sealed class BotConnectionManager(
         }
     }
 
+    public async Task<OperationResult> LoadMembersAsync(
+        Guid botProfileId,
+        ulong serverId,
+        CancellationToken cancellationToken)
+    {
+        if (!_runtimes.TryGetValue(botProfileId, out var runtime)
+            || runtime.Client.Snapshot.State != BotConnectionState.Connected)
+        {
+            return OperationResult.Failure("Connect the selected bot before loading members.");
+        }
+
+        if (!runtime.Client.Snapshot.FullMemberAccessEnabled)
+        {
+            return OperationResult.Failure(
+                "Full member access is disabled for this bot profile.");
+        }
+
+        try
+        {
+            await runtime.Client.LoadMembersAsync(serverId, cancellationToken).ConfigureAwait(false);
+            return OperationResult.Success();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            MemberLoadFailedLog(logger, botProfileId, serverId, exception.GetType().Name, null);
+            return OperationResult.Failure(
+                "Members could not be loaded. Confirm the Developer Portal Server Members Intent toggle and retry.");
+        }
+    }
+
+    public IReadOnlyList<BotDiagnosticsReadModel> GetDiagnostics()
+    {
+        var now = DateTimeOffset.UtcNow;
+        return _snapshots.Values
+            .OrderBy(snapshot => _profileNames.GetValueOrDefault(snapshot.BotProfileId), StringComparer.OrdinalIgnoreCase)
+            .Select(
+                connection =>
+                {
+                    var cache = GetSnapshot(connection.BotProfileId);
+                    var members = cache.Servers.Select(server => server.Members).ToArray();
+                    var completeness = AggregateCompleteness(
+                        members.Select(member => member.Completeness),
+                        connection.FullMemberAccessEnabled);
+                    return new BotDiagnosticsReadModel(
+                        connection.BotProfileId,
+                        _profileNames.GetValueOrDefault(connection.BotProfileId, "Saved bot"),
+                        connection.State.ToString(),
+                        connection.GatewayLatencyMilliseconds,
+                        connection.LastReadyAt,
+                        connection.LastDisconnectedAt,
+                        connection.LastReconnectedAt,
+                        cache.Servers.Length,
+                        cache.Servers.Sum(server => server.Channels.Length),
+                        cache.Servers.Sum(server => server.Roles.Length),
+                        members.Sum(member => member.LoadedMemberCount),
+                        completeness,
+                        cache.LastAcceptedSequence,
+                        cache.LastSuccessfulRefreshAt,
+                        cache.IsRefreshPending,
+                        connection.RecentGatewayError,
+                        connection.FullMemberAccessEnabled,
+                        connection.State == BotConnectionState.Connected
+                            && connection.FullMemberAccessEnabled,
+                        connection.VoiceStateEventCount,
+                        connection.LastVoiceStateEventAt,
+                        cache.RefreshedAt is DateTimeOffset refreshedAt
+                            ? now - refreshedAt
+                            : null);
+                })
+            .ToArray();
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
@@ -289,6 +382,7 @@ public sealed class BotConnectionManager(
     private void ApplyExplorerUpdate(BotRuntime runtime, ExplorerCacheUpdate update)
     {
         var snapshot = runtime.Cache.Apply(update);
+        permissionService.Invalidate(update.BotProfileId, update.ServerId);
         CacheChanged?.Invoke(
             this,
             new ExplorerCacheChanged(
@@ -302,6 +396,38 @@ public sealed class BotConnectionManager(
     {
         _snapshots[snapshot.BotProfileId] = snapshot;
         StatusChanged?.Invoke(this, snapshot);
+    }
+
+    private static DataCompleteness AggregateCompleteness(
+        IEnumerable<DataCompleteness> values,
+        bool fullMemberAccessEnabled)
+    {
+        var states = values.ToArray();
+        if (states.Length == 0)
+        {
+            return fullMemberAccessEnabled
+                ? DataCompleteness.Unavailable
+                : DataCompleteness.Limited;
+        }
+
+        if (states.Any(state => state == DataCompleteness.Failed))
+        {
+            return DataCompleteness.Failed;
+        }
+
+        if (states.Any(state => state == DataCompleteness.Loading))
+        {
+            return DataCompleteness.Loading;
+        }
+
+        if (states.All(state => state == DataCompleteness.Complete))
+        {
+            return DataCompleteness.Complete;
+        }
+
+        return fullMemberAccessEnabled
+            ? DataCompleteness.Partial
+            : DataCompleteness.Limited;
     }
 
     private sealed class BotRuntime(Guid botProfileId, IDiscordBotClient client)
@@ -334,4 +460,10 @@ public sealed class BotConnectionManager(
             LogLevel.Warning,
             new EventId(2104, nameof(RefreshFailedLog)),
             "Explorer refresh for bot {BotProfileId} failed with {ExceptionType}");
+
+    private static readonly Action<ILogger, Guid, ulong, string, Exception?> MemberLoadFailedLog =
+        LoggerMessage.Define<Guid, ulong, string>(
+            LogLevel.Warning,
+            new EventId(2105, nameof(MemberLoadFailedLog)),
+            "Member load for bot {BotProfileId}, server {ServerId} failed with {ExceptionType}");
 }

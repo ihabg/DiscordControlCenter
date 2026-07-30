@@ -202,6 +202,75 @@ public sealed class BotProfileService(
         }
     }
 
+    public async Task<OperationResult<BotProfile>> SetFullMemberAccessAsync(
+        Guid botProfileId,
+        bool enabled,
+        CancellationToken cancellationToken)
+    {
+        var profile = await repository.GetAsync(botProfileId, cancellationToken).ConfigureAwait(false);
+        if (profile is null)
+        {
+            return OperationResult.Failure<BotProfile>("The bot profile no longer exists.");
+        }
+
+        if (profile.EnableFullMemberAccess == enabled)
+        {
+            return OperationResult.Success(profile);
+        }
+
+        var snapshot = connectionManager.Snapshots.FirstOrDefault(
+            item => item.BotProfileId == botProfileId);
+        var reconnect = snapshot?.State is BotConnectionState.Connected
+            or BotConnectionState.Connecting
+            or BotConnectionState.Reconnecting;
+        if (snapshot?.State == BotConnectionState.Disconnecting)
+        {
+            return OperationResult.Failure<BotProfile>(
+                "Wait for the current disconnect to finish before changing member access.");
+        }
+
+        if (snapshot is not null && snapshot.State != BotConnectionState.Disconnected)
+        {
+            var disconnect = await connectionManager
+                .DisconnectAsync(botProfileId, cancellationToken)
+                .ConfigureAwait(false);
+            if (!disconnect.IsSuccess)
+            {
+                return OperationResult.Failure<BotProfile>(
+                    disconnect.Error ?? "The bot could not be disconnected safely.");
+            }
+        }
+
+        var updated = profile with { EnableFullMemberAccess = enabled };
+        await repository.UpdateAsync(updated, cancellationToken).ConfigureAwait(false);
+        await WriteAuditAsync(
+            botProfileId,
+            "BotProfile.MemberIntent",
+            profile.DisplayName,
+            "Succeeded",
+            enabled
+                ? "Full member access was enabled locally; the bot will request GuildMembers on its next connection."
+                : "Full member access was disabled locally.",
+            null,
+            0,
+            Guid.NewGuid(),
+            cancellationToken).ConfigureAwait(false);
+        MemberIntentChangedLog(logger, botProfileId, enabled, null);
+
+        if (reconnect)
+        {
+            var connect = await connectionManager
+                .ConnectAsync(botProfileId, cancellationToken)
+                .ConfigureAwait(false);
+            if (!connect.IsSuccess)
+            {
+                return OperationResult.Success(updated);
+            }
+        }
+
+        return OperationResult.Success(updated);
+    }
+
     private static string? Validate(AddBotRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.DisplayName))
@@ -280,4 +349,10 @@ public sealed class BotProfileService(
             LogLevel.Warning,
             new EventId(2005, nameof(TokenReplaceFailedLog)),
             "Credential replacement for bot {BotProfileId} failed with {ExceptionType}");
+
+    private static readonly Action<ILogger, Guid, bool, Exception?> MemberIntentChangedLog =
+        LoggerMessage.Define<Guid, bool>(
+            LogLevel.Information,
+            new EventId(2006, nameof(MemberIntentChangedLog)),
+            "Local GuildMembers selection for bot {BotProfileId} changed to {Enabled}");
 }

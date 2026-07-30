@@ -39,6 +39,17 @@ public sealed class WpfUserDialogService(IBotProfileService botProfileService) :
             MessageBoxImage.Warning,
             MessageBoxResult.No) == MessageBoxResult.Yes;
 
+    public bool ConfirmFullMemberAccessChange(BotProfile profile, bool enabled) =>
+        MessageBox.Show(
+            System.Windows.Application.Current.MainWindow,
+            enabled
+                ? $"Enable full member access for “{profile.DisplayName}”?\n\nBefore continuing, enable Server Members Intent on this bot's page in the Discord Developer Portal. The application will reconnect only this bot and request the privileged GuildMembers intent. If Discord rejects it, the bot will enter a safe faulted state."
+                : $"Disable full member access for “{profile.DisplayName}”?\n\nThe application will reconnect only this bot without GuildMembers. The Members page will return to clearly labeled limited mode.",
+            enabled ? "Enable privileged member access" : "Disable full member access",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning,
+            MessageBoxResult.No) == MessageBoxResult.Yes;
+
     public void ShowError(string title, string message) =>
         MessageBox.Show(
             System.Windows.Application.Current.MainWindow,

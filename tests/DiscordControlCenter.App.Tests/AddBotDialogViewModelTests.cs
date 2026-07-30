@@ -106,6 +106,17 @@ public sealed class AddBotDialogViewModelTests
             throw new NotSupportedException();
         }
 
+        public Task<OperationResult<BotProfile>> SetFullMemberAccessAsync(
+            Guid botProfileId,
+            bool enabled,
+            CancellationToken cancellationToken)
+        {
+            _ = botProfileId;
+            _ = enabled;
+            _ = cancellationToken;
+            throw new NotSupportedException();
+        }
+
         public Task<OperationResult> RemoveAsync(
             Guid botProfileId,
             CancellationToken cancellationToken)

@@ -10,7 +10,8 @@ public sealed record BotProfile(
     ulong? DiscordUserId = null,
     string? DiscordUsername = null,
     string? AvatarUrl = null,
-    DateTimeOffset? LastConnectedAt = null)
+    DateTimeOffset? LastConnectedAt = null,
+    bool EnableFullMemberAccess = false)
 {
     public const string MaskedToken = "••••••••••••••••";
 

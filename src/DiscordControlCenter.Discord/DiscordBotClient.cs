@@ -1,22 +1,34 @@
 using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using Discord;
+using Discord.Net;
 using Discord.WebSocket;
 using DiscordControlCenter.Application.Bots;
+using DiscordControlCenter.Application.Common;
 using DiscordControlCenter.Application.Explorer;
 using DiscordControlCenter.Core.Bots;
+using DiscordControlCenter.Core.Explorer;
 using Microsoft.Extensions.Logging;
 
 namespace DiscordControlCenter.Discord;
 
 public sealed class DiscordBotClient : IDiscordBotClient
 {
+    private const int MaximumCachedMembersPerServer = 100_000;
     private readonly Guid _botProfileId;
+    private readonly bool _fullMemberAccessEnabled;
     private readonly DiscordSocketClient _client;
     private readonly ILogger<DiscordBotClient> _logger;
     private readonly object _snapshotLock = new();
     private readonly object _explorerBuildLock = new();
     private readonly CancellationTokenSource _lifetimeCancellation = new();
     private readonly ConcurrentDictionary<ulong, CancellationTokenSource> _voiceUpdateDebounce = new();
+    private readonly ConcurrentDictionary<ulong, ConcurrentDictionary<ulong, VoiceStateCacheChange>>
+        _pendingVoiceChanges = new();
+    private readonly ConcurrentDictionary<ulong, CancellationTokenSource> _memberUpdateDebounce = new();
+    private readonly ConcurrentDictionary<ulong, ConcurrentDictionary<ulong, PendingMemberChange>>
+        _pendingMemberChanges = new();
+    private readonly ConcurrentDictionary<ulong, SemaphoreSlim> _memberLoadGates = new();
     private TaskCompletionSource _ready =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private BotConnectionSnapshot _snapshot;
@@ -24,15 +36,24 @@ public sealed class DiscordBotClient : IDiscordBotClient
     private int _disposed;
     private long _explorerSequence;
 
-    public DiscordBotClient(Guid botProfileId, ILogger<DiscordBotClient> logger)
+    public DiscordBotClient(
+        Guid botProfileId,
+        bool enableFullMemberAccess,
+        ILogger<DiscordBotClient> logger)
     {
         _botProfileId = botProfileId;
+        _fullMemberAccessEnabled = enableFullMemberAccess;
         _logger = logger;
-        _snapshot = BotConnectionSnapshot.Disconnected(botProfileId);
+        _snapshot = BotConnectionSnapshot.Disconnected(botProfileId) with
+        {
+            FullMemberAccessEnabled = enableFullMemberAccess
+        };
         _client = new DiscordSocketClient(
             new DiscordSocketConfig
             {
-                GatewayIntents = GatewayIntents.Guilds | GatewayIntents.GuildVoiceStates,
+                GatewayIntents = GatewayIntents.Guilds
+                    | GatewayIntents.GuildVoiceStates
+                    | (enableFullMemberAccess ? GatewayIntents.GuildMembers : GatewayIntents.None),
                 AlwaysDownloadUsers = false,
                 LogGatewayIntentWarnings = true,
                 MessageCacheSize = 0
@@ -53,6 +74,10 @@ public sealed class DiscordBotClient : IDiscordBotClient
         _client.RoleCreated += HandleRoleCreatedAsync;
         _client.RoleUpdated += HandleRoleUpdatedAsync;
         _client.RoleDeleted += HandleRoleDeletedAsync;
+        _client.UserJoined += HandleUserJoinedAsync;
+        _client.UserLeft += HandleUserLeftAsync;
+        _client.GuildMemberUpdated += HandleGuildMemberUpdatedAsync;
+        _client.GuildMembersDownloaded += HandleGuildMembersDownloadedAsync;
         _client.UserVoiceStateUpdated += HandleVoiceStateUpdatedAsync;
         _client.Log += HandleLogAsync;
     }
@@ -113,7 +138,14 @@ public sealed class DiscordBotClient : IDiscordBotClient
         _lifetimeCancellation.Cancel();
         Publish(Snapshot with { State = BotConnectionState.Disconnecting, ErrorMessage = null });
         await StopCoreAsync(cancellationToken).ConfigureAwait(false);
-        Publish(BotConnectionSnapshot.Disconnected(_botProfileId));
+        Publish(Snapshot with
+        {
+            State = BotConnectionState.Disconnected,
+            GatewayLatencyMilliseconds = null,
+            ServerCount = 0,
+            LastDisconnectedAt = DateTimeOffset.UtcNow,
+            ErrorMessage = null
+        });
     }
 
     public Task<ExplorerCacheUpdate> RefreshExplorerAsync(CancellationToken cancellationToken)
@@ -126,6 +158,121 @@ public sealed class DiscordBotClient : IDiscordBotClient
                 return BuildResetUpdate();
             },
             cancellationToken);
+    }
+
+    public async Task LoadMembersAsync(ulong serverId, CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        if (!_fullMemberAccessEnabled)
+        {
+            throw new PrivilegedIntentException(
+                "Enable full member access locally after enabling Server Members Intent in the Discord Developer Portal.");
+        }
+
+        var guild = _client.GetGuild(serverId)
+            ?? throw new InvalidOperationException("The selected server is no longer available.");
+        var gate = _memberLoadGates.GetOrAdd(serverId, _ => new SemaphoreSlim(1, 1));
+        using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            _lifetimeCancellation.Token);
+        var memberLoadToken = linkedCancellation.Token;
+        await gate.WaitAsync(memberLoadToken).ConfigureAwait(false);
+        try
+        {
+            PublishMemberState(
+                guild,
+                ExplorerCacheUpdateKind.MembersLoading,
+                DataCompleteness.Loading,
+                [],
+                null,
+                null);
+            try
+            {
+                var options = new RequestOptions
+                {
+                    CancelToken = memberLoadToken
+                };
+                var translated = new Dictionary<ulong, MemberReadModel>();
+                var fetchedMemberCount = 0;
+                await foreach (var page in guild
+                                   .GetUsersAsync(options)
+                                   .WithCancellation(memberLoadToken)
+                                   .ConfigureAwait(false))
+                {
+                    memberLoadToken.ThrowIfCancellationRequested();
+                    fetchedMemberCount += page.Count;
+                    var remainingCapacity = MaximumCachedMembersPerServer - translated.Count;
+                    if (remainingCapacity <= 0)
+                    {
+                        continue;
+                    }
+
+                    var batch = page
+                        .Take(remainingCapacity)
+                        .Select(user => DiscordExplorerTranslator.TranslateMember(user, guild))
+                        .Where(member => !translated.ContainsKey(member.Id))
+                        .ToArray();
+                    foreach (var member in batch)
+                    {
+                        translated[member.Id] = member;
+                    }
+
+                    foreach (var visibleBatch in batch.Chunk(250))
+                    {
+                        PublishMemberState(
+                            guild,
+                            ExplorerCacheUpdateKind.MembersBatchUpserted,
+                            DataCompleteness.Loading,
+                            visibleBatch,
+                            null,
+                            null);
+                    }
+                }
+
+                var wasBounded = fetchedMemberCount > MaximumCachedMembersPerServer;
+                PublishMemberState(
+                    guild,
+                    ExplorerCacheUpdateKind.MembersStateChanged,
+                    wasBounded ? DataCompleteness.Partial : DataCompleteness.Complete,
+                    translated.Values,
+                    DateTimeOffset.UtcNow,
+                    wasBounded
+                        ? $"Member caching is limited to {MaximumCachedMembersPerServer:N0} entries per server."
+                        : null);
+            }
+            catch (OperationCanceledException) when (memberLoadToken.IsCancellationRequested)
+            {
+                PublishMemberState(
+                    guild,
+                    ExplorerCacheUpdateKind.MembersStateChanged,
+                    DataCompleteness.Cancelled,
+                    [],
+                    DateTimeOffset.UtcNow,
+                    null);
+                throw;
+            }
+            catch (Exception exception)
+            {
+                MemberDownloadFailedLog(
+                    _logger,
+                    _botProfileId,
+                    serverId,
+                    exception.GetType().Name,
+                    null);
+                PublishMemberState(
+                    guild,
+                    ExplorerCacheUpdateKind.MembersStateChanged,
+                    DataCompleteness.Failed,
+                    [],
+                    DateTimeOffset.UtcNow,
+                    "Member loading failed. Confirm the Developer Portal Server Members Intent toggle and retry.");
+                throw;
+            }
+        }
+        finally
+        {
+            gate.Release();
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -152,6 +299,10 @@ public sealed class DiscordBotClient : IDiscordBotClient
         _client.RoleCreated -= HandleRoleCreatedAsync;
         _client.RoleUpdated -= HandleRoleUpdatedAsync;
         _client.RoleDeleted -= HandleRoleDeletedAsync;
+        _client.UserJoined -= HandleUserJoinedAsync;
+        _client.UserLeft -= HandleUserLeftAsync;
+        _client.GuildMemberUpdated -= HandleGuildMemberUpdatedAsync;
+        _client.GuildMembersDownloaded -= HandleGuildMembersDownloadedAsync;
         _client.UserVoiceStateUpdated -= HandleVoiceStateUpdatedAsync;
         _client.Log -= HandleLogAsync;
         await StopCoreAsync(CancellationToken.None).ConfigureAwait(false);
@@ -174,6 +325,13 @@ public sealed class DiscordBotClient : IDiscordBotClient
             _client.Guilds.Count,
             identity,
             now,
+            null,
+            now,
+            Snapshot.LastDisconnectedAt,
+            Snapshot.LastReconnectedAt,
+            _fullMemberAccessEnabled,
+            Snapshot.VoiceStateEventCount,
+            Snapshot.LastVoiceStateEventAt,
             null));
         await PublishResetAsync().ConfigureAwait(false);
         _ready.TrySetResult();
@@ -191,6 +349,7 @@ public sealed class DiscordBotClient : IDiscordBotClient
                 ServerCount = _client.Guilds.Count,
                 GatewayLatencyMilliseconds = _client.Latency,
                 LastConnectedAt = DateTimeOffset.UtcNow,
+                LastReconnectedAt = DateTimeOffset.UtcNow,
                 ErrorMessage = null
             });
         }
@@ -198,6 +357,29 @@ public sealed class DiscordBotClient : IDiscordBotClient
 
     private Task HandleDisconnectedAsync(Exception exception)
     {
+        if (exception is WebSocketClosedException { CloseCode: 4014 })
+        {
+            const string message =
+                "Discord rejected GuildMembers (close code 4014). Enable Server Members Intent in the Developer Portal, or disable full member access locally.";
+            Interlocked.Exchange(ref _manualStop, 1);
+            Publish(Snapshot with
+            {
+                State = BotConnectionState.Faulted,
+                GatewayLatencyMilliseconds = null,
+                LastDisconnectedAt = DateTimeOffset.UtcNow,
+                ErrorMessage = message,
+                RecentGatewayError = "GuildMembers was rejected with gateway close code 4014."
+            });
+            _ready.TrySetException(new PrivilegedIntentException(message));
+            PublishExplorer(
+                ExplorerCacheUpdate.Clear(
+                    _botProfileId,
+                    NextExplorerSequence(),
+                    DateTimeOffset.UtcNow));
+            PrivilegedIntentRejectedLog(_logger, _botProfileId, null);
+            return Task.CompletedTask;
+        }
+
         var isManual = Volatile.Read(ref _manualStop) != 0;
         Publish(Snapshot with
         {
@@ -205,6 +387,10 @@ public sealed class DiscordBotClient : IDiscordBotClient
                 ? BotConnectionState.Disconnected
                 : BotConnectionState.Reconnecting,
             GatewayLatencyMilliseconds = null,
+            LastDisconnectedAt = DateTimeOffset.UtcNow,
+            RecentGatewayError = isManual
+                ? Snapshot.RecentGatewayError
+                : "The gateway connection was interrupted.",
             ErrorMessage = isManual ? null : "The gateway connection was interrupted; Discord.Net is reconnecting."
         });
         if (!isManual)
@@ -284,16 +470,99 @@ public sealed class DiscordBotClient : IDiscordBotClient
         return Task.CompletedTask;
     }
 
+    private Task HandleUserJoinedAsync(SocketGuildUser user)
+    {
+        if (_fullMemberAccessEnabled)
+        {
+            QueueMemberChange(
+                user.Guild,
+                user.Id,
+                DiscordExplorerTranslator.TranslateMember(user, user.Guild),
+                removed: false);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private Task HandleUserLeftAsync(SocketGuild guild, SocketUser user)
+    {
+        if (_fullMemberAccessEnabled)
+        {
+            QueueMemberChange(guild, user.Id, null, removed: true);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private Task HandleGuildMemberUpdatedAsync(
+        Cacheable<SocketGuildUser, ulong> before,
+        SocketGuildUser after)
+    {
+        _ = before;
+        if (_fullMemberAccessEnabled)
+        {
+            QueueMemberChange(
+                after.Guild,
+                after.Id,
+                DiscordExplorerTranslator.TranslateMember(after, after.Guild),
+                removed: false);
+        }
+
+        if (after.Id == _client.CurrentUser.Id)
+        {
+            PublishServer(after.Guild);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private Task HandleGuildMembersDownloadedAsync(SocketGuild guild)
+    {
+        if (!_fullMemberAccessEnabled)
+        {
+            return Task.CompletedTask;
+        }
+
+        var members = guild.Users
+            .Take(MaximumCachedMembersPerServer)
+            .Select(user => DiscordExplorerTranslator.TranslateMember(user, guild))
+            .ToArray();
+        PublishMemberState(
+            guild,
+            ExplorerCacheUpdateKind.MembersStateChanged,
+            guild.Users.Count > MaximumCachedMembersPerServer
+                ? DataCompleteness.Partial
+                : DataCompleteness.Complete,
+            members,
+            DateTimeOffset.UtcNow,
+            guild.Users.Count > MaximumCachedMembersPerServer
+                ? $"Member caching is limited to {MaximumCachedMembersPerServer:N0} entries per server."
+                : null);
+        return Task.CompletedTask;
+    }
+
     private Task HandleVoiceStateUpdatedAsync(
         SocketUser user,
         SocketVoiceState before,
         SocketVoiceState after)
     {
-        _ = user;
         var guildId = after.VoiceChannel?.Guild.Id ?? before.VoiceChannel?.Guild.Id;
         if (guildId is ulong id)
         {
-            QueueVoiceUpdate(id);
+            var guild = _client.GetGuild(id);
+            var guildUser = guild?.GetUser(user.Id);
+            if (guild is not null && guildUser is not null)
+            {
+                var voiceState = DiscordExplorerTranslator.TranslateVoiceState(guildUser, after);
+                var member = DiscordExplorerTranslator.TranslateMember(guildUser, guild);
+                QueueVoiceUpdate(
+                    new VoiceStateCacheChange(id, user.Id, member, voiceState));
+                Publish(Snapshot with
+                {
+                    VoiceStateEventCount = Snapshot.VoiceStateEventCount + 1,
+                    LastVoiceStateEventAt = DateTimeOffset.UtcNow
+                });
+            }
         }
 
         return Task.CompletedTask;
@@ -301,6 +570,12 @@ public sealed class DiscordBotClient : IDiscordBotClient
 
     private Task HandleLogAsync(LogMessage message)
     {
+        if (Volatile.Read(ref _manualStop) != 0
+            && message.Exception is OperationCanceledException)
+        {
+            return Task.CompletedTask;
+        }
+
         var level = message.Severity switch
         {
             LogSeverity.Critical => LogLevel.Critical,
@@ -320,7 +595,7 @@ public sealed class DiscordBotClient : IDiscordBotClient
             LogLevel.Trace => DiscordTraceLog,
             _ => DiscordDebugLog
         };
-        write(_logger, message.Source, message.Message ?? string.Empty, exceptionType, null);
+        write(_logger, message.Source, message.Severity.ToString(), exceptionType, null);
         return Task.CompletedTask;
     }
 
@@ -361,7 +636,10 @@ public sealed class DiscordBotClient : IDiscordBotClient
         {
             var now = DateTimeOffset.UtcNow;
             var servers = _client.Guilds
-                .Select(guild => DiscordExplorerTranslator.TranslateServer(guild, now))
+                .Select(guild => DiscordExplorerTranslator.TranslateServer(
+                    guild,
+                    now,
+                    _fullMemberAccessEnabled))
                 .ToArray();
             return ExplorerCacheUpdate.Reset(
                 _botProfileId,
@@ -397,7 +675,10 @@ public sealed class DiscordBotClient : IDiscordBotClient
             lock (_explorerBuildLock)
             {
                 var now = DateTimeOffset.UtcNow;
-                var server = DiscordExplorerTranslator.TranslateServer(guild, now);
+                var server = DiscordExplorerTranslator.TranslateServer(
+                    guild,
+                    now,
+                    _fullMemberAccessEnabled);
                 PublishExplorer(
                     ExplorerCacheUpdate.Upsert(
                         _botProfileId,
@@ -412,12 +693,16 @@ public sealed class DiscordBotClient : IDiscordBotClient
         }
     }
 
-    private void QueueVoiceUpdate(ulong guildId)
+    private void QueueVoiceUpdate(VoiceStateCacheChange change)
     {
+        var pending = _pendingVoiceChanges.GetOrAdd(
+            change.ServerId,
+            _ => new ConcurrentDictionary<ulong, VoiceStateCacheChange>());
+        pending[change.UserId] = change;
         var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
             _lifetimeCancellation.Token);
         _voiceUpdateDebounce.AddOrUpdate(
-            guildId,
+            change.ServerId,
             cancellation,
             (_, existing) =>
             {
@@ -425,7 +710,7 @@ public sealed class DiscordBotClient : IDiscordBotClient
                 existing.Dispose();
                 return cancellation;
             });
-        _ = PublishDebouncedVoiceUpdateAsync(guildId, cancellation);
+        _ = PublishDebouncedVoiceUpdateAsync(change.ServerId, cancellation);
     }
 
     private async Task PublishDebouncedVoiceUpdateAsync(
@@ -436,10 +721,15 @@ public sealed class DiscordBotClient : IDiscordBotClient
         {
             await Task.Delay(TimeSpan.FromMilliseconds(250), cancellation.Token)
                 .ConfigureAwait(false);
-            var guild = _client.GetGuild(guildId);
-            if (guild is not null)
+            if (_pendingVoiceChanges.TryRemove(guildId, out var pending)
+                && !pending.IsEmpty)
             {
-                PublishServer(guild);
+                PublishExplorer(
+                    ExplorerCacheUpdate.Voice(
+                        _botProfileId,
+                        NextExplorerSequence(),
+                        pending.Values,
+                        DateTimeOffset.UtcNow));
             }
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
@@ -454,6 +744,117 @@ public sealed class DiscordBotClient : IDiscordBotClient
                 cancellation.Dispose();
             }
         }
+    }
+
+    private void QueueMemberChange(
+        SocketGuild guild,
+        ulong memberId,
+        MemberReadModel? member,
+        bool removed)
+    {
+        var pending = _pendingMemberChanges.GetOrAdd(
+            guild.Id,
+            _ => new ConcurrentDictionary<ulong, PendingMemberChange>());
+        pending[memberId] = new PendingMemberChange(memberId, member, removed);
+        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            _lifetimeCancellation.Token);
+        _memberUpdateDebounce.AddOrUpdate(
+            guild.Id,
+            cancellation,
+            (_, existing) =>
+            {
+                existing.Cancel();
+                existing.Dispose();
+                return cancellation;
+            });
+        _ = PublishDebouncedMemberUpdatesAsync(guild, cancellation);
+    }
+
+    private async Task PublishDebouncedMemberUpdatesAsync(
+        SocketGuild guild,
+        CancellationTokenSource cancellation)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(100), cancellation.Token)
+                .ConfigureAwait(false);
+            if (!_pendingMemberChanges.TryRemove(guild.Id, out var pending))
+            {
+                return;
+            }
+
+            var upserts = pending.Values
+                .Where(change => !change.Removed && change.Member is not null)
+                .Select(change => change.Member!)
+                .ToArray();
+            if (upserts.Length > 0)
+            {
+                PublishMemberState(
+                    guild,
+                    ExplorerCacheUpdateKind.MembersBatchUpserted,
+                    DataCompleteness.Partial,
+                    upserts,
+                    DateTimeOffset.UtcNow,
+                    null);
+            }
+
+            foreach (var removed in pending.Values.Where(change => change.Removed))
+            {
+                PublishExplorer(
+                    ExplorerCacheUpdate.Members(
+                        _botProfileId,
+                        NextExplorerSequence(),
+                        ExplorerCacheUpdateKind.MemberRemoved,
+                        new MemberCacheStateChange(
+                            guild.Id,
+                            removed.MemberId,
+                            DataCompleteness.Partial,
+                            _fullMemberAccessEnabled,
+                            [],
+                            guild.MemberCount,
+                            DateTimeOffset.UtcNow,
+                            null),
+                        DateTimeOffset.UtcNow));
+            }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            if (_memberUpdateDebounce.TryGetValue(guild.Id, out var current)
+                && ReferenceEquals(current, cancellation))
+            {
+                _memberUpdateDebounce.TryRemove(guild.Id, out _);
+                cancellation.Dispose();
+            }
+        }
+    }
+
+    private void PublishMemberState(
+        SocketGuild guild,
+        ExplorerCacheUpdateKind kind,
+        DataCompleteness completeness,
+        IEnumerable<MemberReadModel> members,
+        DateTimeOffset? refreshedAt,
+        string? errorMessage)
+    {
+        var now = DateTimeOffset.UtcNow;
+        PublishExplorer(
+            ExplorerCacheUpdate.Members(
+                _botProfileId,
+                NextExplorerSequence(),
+                kind,
+                new MemberCacheStateChange(
+                    guild.Id,
+                    null,
+                    completeness,
+                    _fullMemberAccessEnabled,
+                    members.ToImmutableArray(),
+                    guild.MemberCount,
+                    refreshedAt,
+                    errorMessage),
+                now));
     }
 
     private void PublishExplorerFault(Exception exception)
@@ -494,6 +895,18 @@ public sealed class DiscordBotClient : IDiscordBotClient
             new EventId(3102, nameof(ExplorerUpdateFailedLog)),
             "Explorer cache translation for bot {BotProfileId} failed with {ExceptionType}");
 
+    private static readonly Action<ILogger, Guid, ulong, string, Exception?> MemberDownloadFailedLog =
+        LoggerMessage.Define<Guid, ulong, string>(
+            LogLevel.Warning,
+            new EventId(3103, nameof(MemberDownloadFailedLog)),
+            "Member download for bot {BotProfileId}, server {ServerId} failed with {ExceptionType}");
+
+    private static readonly Action<ILogger, Guid, Exception?> PrivilegedIntentRejectedLog =
+        LoggerMessage.Define<Guid>(
+            LogLevel.Warning,
+            new EventId(3104, nameof(PrivilegedIntentRejectedLog)),
+            "Discord rejected GuildMembers for bot {BotProfileId} with close code 4014");
+
     private static readonly Action<ILogger, string, string, string, Exception?> DiscordCriticalLog =
         CreateDiscordLog(LogLevel.Critical, 3110, nameof(DiscordCriticalLog));
     private static readonly Action<ILogger, string, string, string, Exception?> DiscordErrorLog =
@@ -514,5 +927,10 @@ public sealed class DiscordBotClient : IDiscordBotClient
         LoggerMessage.Define<string, string, string>(
             level,
             new EventId(id, name),
-            "Discord gateway [{Source}] {Message} ({ExceptionType})");
+            "Discord gateway event [{Source}] severity {Severity} ({ExceptionType})");
+
+    private sealed record PendingMemberChange(
+        ulong MemberId,
+        MemberReadModel? Member,
+        bool Removed);
 }

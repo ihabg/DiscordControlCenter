@@ -21,6 +21,7 @@ public sealed class PermissionStatusToTextConverter : IValueConverter
             PermissionStatus.Denied => "Denied",
             PermissionStatus.NotApplicable => "Not applicable",
             PermissionStatus.AllowedThroughAdministrator => "Allowed through Administrator",
+            PermissionStatus.Unknown => "Unknown due to incomplete data",
             _ => "Unavailable"
         };
     }

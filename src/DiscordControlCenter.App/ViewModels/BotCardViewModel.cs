@@ -40,6 +40,12 @@ public sealed class BotCardViewModel : ObservableObject, IDisposable
             ReplaceTokenAsync,
             CanRemove,
             HandleUnexpectedError);
+        ToggleFullMemberAccessCommand = new AsyncRelayCommand(
+            ToggleFullMemberAccessAsync,
+            () => State is not BotConnectionState.Connecting
+                and not BotConnectionState.Disconnecting
+                and not BotConnectionState.Reconnecting,
+            HandleUnexpectedError);
         ErrorDetailsCommand = new RelayCommand(
             _ => _dialogs.ShowBotError(DisplayName, ErrorMessage ?? "No details are available."),
             _ => HasError);
@@ -67,11 +73,19 @@ public sealed class BotCardViewModel : ObservableObject, IDisposable
             .ToString("g", CultureInfo.CurrentCulture) ?? "Never";
     public string? ErrorMessage => _snapshot.ErrorMessage ?? _operationError;
     public bool HasError => !string.IsNullOrWhiteSpace(ErrorMessage);
+    public bool FullMemberAccessEnabled => _profile.EnableFullMemberAccess;
+    public string FullMemberAccessText => FullMemberAccessEnabled
+        ? "Disable members"
+        : "Enable members";
+    public string FullMemberAccessSummary => FullMemberAccessEnabled
+        ? "GuildMembers enabled locally"
+        : "Limited member mode";
 
     public AsyncRelayCommand ConnectCommand { get; }
     public AsyncRelayCommand DisconnectCommand { get; }
     public AsyncRelayCommand RemoveCommand { get; }
     public AsyncRelayCommand ReplaceTokenCommand { get; }
+    public AsyncRelayCommand ToggleFullMemberAccessCommand { get; }
     public RelayCommand ErrorDetailsCommand { get; }
 
     public void Update(BotConnectionSnapshot snapshot)
@@ -92,6 +106,7 @@ public sealed class BotCardViewModel : ObservableObject, IDisposable
         DisconnectCommand.Dispose();
         RemoveCommand.Dispose();
         ReplaceTokenCommand.Dispose();
+        ToggleFullMemberAccessCommand.Dispose();
     }
 
     private async Task ConnectAsync(CancellationToken cancellationToken)
@@ -149,6 +164,30 @@ public sealed class BotCardViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(MaskedToken));
     }
 
+    private async Task ToggleFullMemberAccessAsync(CancellationToken cancellationToken)
+    {
+        var enabled = !FullMemberAccessEnabled;
+        if (!_dialogs.ConfirmFullMemberAccessChange(_profile, enabled))
+        {
+            return;
+        }
+
+        var result = await _profileService
+            .SetFullMemberAccessAsync(Id, enabled, cancellationToken);
+        if (!result.IsSuccess || result.Value is null)
+        {
+            _dialogs.ShowError(
+                "Member access setting",
+                result.Error ?? "The member access setting could not be changed.");
+            return;
+        }
+
+        _profile = result.Value;
+        OnPropertyChanged(nameof(FullMemberAccessEnabled));
+        OnPropertyChanged(nameof(FullMemberAccessText));
+        OnPropertyChanged(nameof(FullMemberAccessSummary));
+    }
+
     private bool CanRemove() =>
         State is BotConnectionState.Disconnected or BotConnectionState.Faulted;
 
@@ -176,6 +215,7 @@ public sealed class BotCardViewModel : ObservableObject, IDisposable
         DisconnectCommand.NotifyCanExecuteChanged();
         RemoveCommand.NotifyCanExecuteChanged();
         ReplaceTokenCommand.NotifyCanExecuteChanged();
+        ToggleFullMemberAccessCommand.NotifyCanExecuteChanged();
         ErrorDetailsCommand.NotifyCanExecuteChanged();
     }
 }

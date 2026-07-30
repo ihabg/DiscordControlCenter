@@ -7,7 +7,7 @@ public sealed class SqliteDatabaseInitializer(
     SqliteConnectionFactory connectionFactory,
     ILogger<SqliteDatabaseInitializer> logger) : IDatabaseInitializer
 {
-    private const int CurrentSchemaVersion = 1;
+    private const int CurrentSchemaVersion = 2;
 
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
@@ -39,7 +39,8 @@ public sealed class SqliteDatabaseInitializer(
                 DiscordUserId TEXT NULL,
                 DiscordUsername TEXT NULL,
                 AvatarUrl TEXT NULL,
-                LastConnectedAt TEXT NULL
+                LastConnectedAt TEXT NULL,
+                EnableFullMemberAccess INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS AuditEntries (
@@ -63,11 +64,57 @@ public sealed class SqliteDatabaseInitializer(
                 WHERE DiscordUserId IS NOT NULL;
 
             INSERT OR IGNORE INTO SchemaVersions (Version, AppliedAt)
-                VALUES ($version, $appliedAt);
+                VALUES (1, $appliedAt);
             """;
-        command.Parameters.AddWithValue("$version", CurrentSchemaVersion);
         command.Parameters.AddWithValue("$appliedAt", DateTimeOffset.UtcNow.ToString("O"));
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        var hasMemberIntentColumn = false;
+        await using (var columnCommand = connection.CreateCommand())
+        {
+            columnCommand.Transaction = transaction;
+            columnCommand.CommandText = "PRAGMA table_info(BotProfiles);";
+            await using var reader = await columnCommand
+                .ExecuteReaderAsync(cancellationToken)
+                .ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (string.Equals(
+                        reader.GetString(1),
+                        "EnableFullMemberAccess",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    hasMemberIntentColumn = true;
+                    break;
+                }
+            }
+        }
+
+        if (!hasMemberIntentColumn)
+        {
+            await using var migrationCommand = connection.CreateCommand();
+            migrationCommand.Transaction = transaction;
+            migrationCommand.CommandText =
+                """
+                ALTER TABLE BotProfiles
+                    ADD COLUMN EnableFullMemberAccess INTEGER NOT NULL DEFAULT 0;
+                """;
+            await migrationCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await using (var versionCommand = connection.CreateCommand())
+        {
+            versionCommand.Transaction = transaction;
+            versionCommand.CommandText =
+                """
+                INSERT OR IGNORE INTO SchemaVersions (Version, AppliedAt)
+                    VALUES ($version, $appliedAt);
+                """;
+            versionCommand.Parameters.AddWithValue("$version", CurrentSchemaVersion);
+            versionCommand.Parameters.AddWithValue("$appliedAt", DateTimeOffset.UtcNow.ToString("O"));
+            await versionCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         DatabaseReadyLog(logger, CurrentSchemaVersion, null);
     }

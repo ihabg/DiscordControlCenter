@@ -47,6 +47,13 @@ public static class PermissionSynchronization
 
 public static class ExplorerSearch
 {
+    public static ImmutableArray<RoleReadModel> OrderRoles(
+        IEnumerable<RoleReadModel> roles) =>
+        roles
+            .OrderByDescending(role => role.IsEveryone ? int.MinValue : role.Position)
+            .ThenByDescending(role => role.Id)
+            .ToImmutableArray();
+
     public static ImmutableArray<ServerReadModel> FilterServers(
         IEnumerable<ServerReadModel> servers,
         string? searchText)

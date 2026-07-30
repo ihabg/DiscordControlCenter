@@ -15,6 +15,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private readonly BotsViewModel _bots;
     private readonly ServersViewModel _servers;
     private readonly ChannelsViewModel _channels;
+    private readonly MembersViewModel _members;
+    private readonly RolesViewModel _roles;
+    private readonly PermissionSimulatorViewModel _permissionSimulator;
+    private readonly VoiceViewModel _voice;
     private readonly IBotConnectionManager _connectionManager;
     private readonly IBotExplorerService _explorer;
     private readonly UiDispatcher _dispatcher;
@@ -30,6 +34,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         BotsViewModel bots,
         ServersViewModel servers,
         ChannelsViewModel channels,
+        MembersViewModel members,
+        RolesViewModel roles,
+        PermissionSimulatorViewModel permissionSimulator,
+        VoiceViewModel voice,
         IBotConnectionManager connectionManager,
         IBotExplorerService explorer,
         UiDispatcher dispatcher)
@@ -38,6 +46,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         _bots = bots;
         _servers = servers;
         _channels = channels;
+        _members = members;
+        _roles = roles;
+        _permissionSimulator = permissionSimulator;
+        _voice = voice;
         _connectionManager = connectionManager;
         _explorer = explorer;
         _dispatcher = dispatcher;
@@ -48,6 +60,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             new("◆", "Bots"),
             new("▰", "Servers"),
             new("#", "Channels"),
+            new("P", "Permissions"),
             new("♟", "Members"),
             new("♛", "Roles"),
             new("◖", "Voice"),
@@ -88,6 +101,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             UpdateToolbarServers();
             _servers.SetBot(value?.Id, _selectedConnectionState);
             _channels.SetBot(value?.Id, _selectedConnectionState);
+            _members.SetContext(value?.Id, _selectedConnectionState, null);
+            _roles.SetContext(value?.Id, _selectedConnectionState, null);
+            _permissionSimulator.SetContext(value?.Id, _selectedConnectionState, null);
+            _voice.SetContext(value?.Id, _selectedConnectionState, null);
             OnPropertyChanged(nameof(CanBrowseServers));
         }
     }
@@ -109,6 +126,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
             _servers.SetSelectedServer(value?.Id);
             _channels.SetServer(value?.Id);
+            _members.SetServer(value?.Id);
+            _roles.SetServer(value?.Id);
+            _permissionSimulator.SetServer(value?.Id);
+            _voice.SetServer(value?.Id);
         }
     }
 
@@ -147,6 +168,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         _dashboard.Dispose();
         _servers.Dispose();
         _channels.Dispose();
+        _members.Dispose();
+        _roles.Dispose();
+        _permissionSimulator.Dispose();
+        _voice.Dispose();
         _bots.Dispose();
     }
 
@@ -164,6 +189,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             "Bots" => _bots,
             "Servers" => _servers,
             "Channels" => _channels,
+            "Members" => _members,
+            "Roles" => _roles,
+            "Permissions" => _permissionSimulator,
+            "Voice" => _voice,
             _ => new PlaceholderViewModel(
                 item.Label,
                 "This module is staged for a later milestone. The navigation and service boundaries are ready for it.")
@@ -211,6 +240,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 UpdateToolbarServers();
                 _servers.SetConnectionState(snapshot.State);
                 _channels.SetConnectionState(snapshot.State);
+                _members.SetConnectionState(snapshot.State);
+                _roles.SetConnectionState(snapshot.State);
+                _permissionSimulator.SetConnectionState(snapshot.State);
+                _voice.SetConnectionState(snapshot.State);
                 OnPropertyChanged(nameof(CanBrowseServers));
             });
     }

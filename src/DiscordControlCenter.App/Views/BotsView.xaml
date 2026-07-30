@@ -59,7 +59,7 @@
         <Grid Grid.Row="2" Margin="0,18,0,0">
             <ScrollViewer HorizontalScrollBarVisibility="Auto"
                           VerticalScrollBarVisibility="Disabled">
-                <Border MinWidth="1080"
+                <Border MinWidth="1220"
                         Background="{StaticResource SurfaceBrush}"
                         BorderBrush="{StaticResource BorderBrush}"
                         BorderThickness="1"
@@ -77,7 +77,7 @@
                                 <ColumnDefinition Width="0.6*" />
                                 <ColumnDefinition Width="0.8*" />
                                 <ColumnDefinition Width="1.1*" />
-                                <ColumnDefinition Width="360" />
+                                <ColumnDefinition Width="500" />
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="BOT"
                                        Margin="16,0"
@@ -126,7 +126,7 @@
                                                 <ColumnDefinition Width="0.6*" />
                                                 <ColumnDefinition Width="0.8*" />
                                                 <ColumnDefinition Width="1.1*" />
-                                                <ColumnDefinition Width="344" />
+                                                <ColumnDefinition Width="484" />
                                             </Grid.ColumnDefinitions>
                                             <StackPanel Orientation="Horizontal">
                                                 <Border Width="40"
@@ -215,6 +215,15 @@
                                                         ToolTip="Validate and securely replace this bot token"
                                                         ToolTipService.ShowOnDisabled="True"
                                                         automation:AutomationProperties.HelpText="Available only while the bot is disconnected or faulted" />
+                                                <Button Content="{Binding FullMemberAccessText}"
+                                                        Command="{Binding ToggleFullMemberAccessCommand}"
+                                                        Padding="10,7"
+                                                        Style="{StaticResource SecondaryButtonStyle}"
+                                                        Margin="0,0,5,0"
+                                                        ToolTip="{Binding FullMemberAccessSummary}"
+                                                        ToolTipService.ShowOnDisabled="True"
+                                                        automation:AutomationProperties.Name="Toggle full member access"
+                                                        automation:AutomationProperties.HelpText="Requires the matching Server Members Intent toggle in the Discord Developer Portal" />
                                                 <Button Content="Remove"
                                                         Command="{Binding RemoveCommand}"
                                                         Padding="10,7"

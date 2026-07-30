@@ -1,0 +1,199 @@
+<UserControl x:Class="DiscordControlCenter.App.Views.VoiceView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+             Background="{StaticResource ContentBackgroundBrush}">
+    <Grid Margin="24,22">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <StackPanel Margin="0,0,0,14">
+            <TextBlock Text="Voice-state inspector"
+                       Style="{StaticResource PageHeadingStyle}" />
+            <TextBlock Text="Live, read-only occupancy from GuildVoiceStates. The bot never joins voice and transmits no audio."
+                       Style="{StaticResource SecondaryTextStyle}"
+                       Margin="0,4,0,0" />
+        </StackPanel>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="330" MinWidth="280" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="330" MinWidth="270" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="*" MinWidth="330" />
+            </Grid.ColumnDefinitions>
+
+            <Border Style="{StaticResource PanelSurfaceStyle}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="VOICE AND STAGE CHANNELS"
+                               Style="{StaticResource DetailLabelStyle}"
+                               Margin="0,0,0,10" />
+                    <Grid Grid.Row="1">
+                        <ListBox ItemsSource="{Binding Channels}"
+                                 SelectedItem="{Binding SelectedChannel}"
+                                 Background="Transparent"
+                                 BorderThickness="0"
+                                 ScrollViewer.CanContentScroll="True"
+                                 VirtualizingPanel.IsVirtualizing="True"
+                                 VirtualizingPanel.VirtualizationMode="Recycling"
+                                 automation:AutomationProperties.Name="Voice channels">
+                            <ListBox.ItemContainerStyle>
+                                <StaticResource ResourceKey="DataRowContainerStyle" />
+                            </ListBox.ItemContainerStyle>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="8,9">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Name}"
+                                                       Foreground="{StaticResource TextPrimaryBrush}"
+                                                       FontWeight="SemiBold"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       ToolTip="{Binding Name}" />
+                                            <TextBlock Foreground="{StaticResource TextSecondaryBrush}"
+                                                       FontSize="11"
+                                                       TextTrimming="CharacterEllipsis">
+                                                <Run Text="{Binding TypeName, Mode=OneWay}" />
+                                                <Run Text=" · " />
+                                                <Run Text="{Binding Category, Mode=OneWay}" />
+                                            </TextBlock>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding OccupancyText}"
+                                                   Foreground="{StaticResource TextPrimaryBrush}"
+                                                   VerticalAlignment="Center" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <StackPanel HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    MaxWidth="250"
+                                    IsHitTestVisible="False">
+                            <TextBlock Text="{Binding StateTitle}"
+                                       Style="{StaticResource SectionHeadingStyle}"
+                                       TextAlignment="Center" />
+                            <TextBlock Text="{Binding StateMessage}"
+                                       Style="{StaticResource SecondaryTextStyle}"
+                                       TextWrapping="Wrap"
+                                       TextAlignment="Center"
+                                       Margin="0,5,0,0" />
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <Border Grid.Column="2" Style="{StaticResource PanelSurfaceStyle}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="CONNECTED MEMBERS"
+                               Style="{StaticResource DetailLabelStyle}"
+                               Margin="0,0,0,10" />
+                    <ListBox Grid.Row="1"
+                             ItemsSource="{Binding Members}"
+                             SelectedItem="{Binding SelectedMember}"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             ScrollViewer.CanContentScroll="True"
+                             VirtualizingPanel.IsVirtualizing="True"
+                             VirtualizingPanel.VirtualizationMode="Recycling"
+                             automation:AutomationProperties.Name="Connected voice members">
+                        <ListBox.ItemContainerStyle>
+                            <StaticResource ResourceKey="DataRowContainerStyle" />
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Margin="8,9">
+                                    <TextBlock Text="{Binding DisplayName}"
+                                               Foreground="{StaticResource TextPrimaryBrush}"
+                                               FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Foreground="{StaticResource TextSecondaryBrush}"
+                                               FontSize="11">
+                                        <Run Text="{Binding AccountType, Mode=OneWay}" />
+                                        <Run Text=" · " />
+                                        <Run Text="{Binding IdText, Mode=OneWay}" />
+                                    </TextBlock>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+
+            <Border Grid.Column="4" Style="{StaticResource PanelSurfaceStyle}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <ContentControl Content="{Binding SelectedChannel}">
+                            <ContentControl.ContentTemplate>
+                                <DataTemplate>
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Name}"
+                                                   Style="{StaticResource PageHeadingStyle}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding IdText}"
+                                                   Foreground="{StaticResource TextMutedBrush}"
+                                                   Margin="0,2,0,14" />
+                                        <UniformGrid Columns="2">
+                                            <StackPanel Margin="0,0,12,12"><TextBlock Text="CATEGORY" Style="{StaticResource DetailLabelStyle}" /><TextBlock Text="{Binding Category}" Style="{StaticResource DetailValueStyle}" /></StackPanel>
+                                            <StackPanel Margin="0,0,0,12"><TextBlock Text="BITRATE" Style="{StaticResource DetailLabelStyle}" /><TextBlock Text="{Binding BitrateText}" Style="{StaticResource DetailValueStyle}" /></StackPanel>
+                                            <StackPanel Margin="0,0,12,12"><TextBlock Text="USER LIMIT" Style="{StaticResource DetailLabelStyle}" /><TextBlock Text="{Binding UserLimitText}" Style="{StaticResource DetailValueStyle}" /></StackPanel>
+                                            <StackPanel Margin="0,0,0,12"><TextBlock Text="OCCUPANCY" Style="{StaticResource DetailLabelStyle}" /><TextBlock Text="{Binding OccupancyText}" Style="{StaticResource DetailValueStyle}" /></StackPanel>
+                                            <StackPanel Margin="0,0,12,12"><TextBlock Text="VIEW" Style="{StaticResource DetailLabelStyle}" /><TextBlock Text="{Binding ViewPermission}" Style="{StaticResource DetailValueStyle}" /></StackPanel>
+                                            <StackPanel Margin="0,0,0,12"><TextBlock Text="CONNECT" Style="{StaticResource DetailLabelStyle}" /><TextBlock Text="{Binding ConnectPermission}" Style="{StaticResource DetailValueStyle}" /></StackPanel>
+                                            <StackPanel Margin="0,0,12,12"><TextBlock Text="SPEAK" Style="{StaticResource DetailLabelStyle}" /><TextBlock Text="{Binding SpeakPermission}" Style="{StaticResource DetailValueStyle}" /></StackPanel>
+                                            <StackPanel Margin="0,0,0,12"><TextBlock Text="MOVE MEMBERS" Style="{StaticResource DetailLabelStyle}" /><TextBlock Text="{Binding MovePermission}" Style="{StaticResource DetailValueStyle}" /></StackPanel>
+                                            <StackPanel Margin="0,0,12,12"><TextBlock Text="MUTE MEMBERS" Style="{StaticResource DetailLabelStyle}" /><TextBlock Text="{Binding MutePermission}" Style="{StaticResource DetailValueStyle}" /></StackPanel>
+                                            <StackPanel Margin="0,0,0,12"><TextBlock Text="DEAFEN MEMBERS" Style="{StaticResource DetailLabelStyle}" /><TextBlock Text="{Binding DeafenPermission}" Style="{StaticResource DetailValueStyle}" /></StackPanel>
+                                        </UniformGrid>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ContentControl.ContentTemplate>
+                        </ContentControl>
+
+                        <Border BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="0,1,0,0"
+                                Margin="0,8,0,0"
+                                Padding="0,14,0,0">
+                            <ContentControl Content="{Binding SelectedMember}">
+                                <ContentControl.ContentTemplate>
+                                    <DataTemplate>
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding DisplayName}"
+                                                       Style="{StaticResource SectionHeadingStyle}" />
+                                            <TextBlock Text="{Binding IdText}"
+                                                       Foreground="{StaticResource TextMutedBrush}"
+                                                       Margin="0,2,0,12" />
+                                            <UniformGrid Columns="2">
+                                                <StackPanel Margin="0,0,12,10"><TextBlock Text="SELF MUTED" Style="{StaticResource DetailLabelStyle}" /><TextBlock Text="{Binding SelfMuted}" Style="{StaticResource DetailValueStyle}" /></StackPanel>
+                                                <StackPanel Margin="0,0,0,10"><TextBlock Text="SELF DEAFENED" Style="{StaticResource DetailLabelStyle}" /><TextBlock Text="{Binding SelfDeafened}" Style="{StaticResource DetailValueStyle}" /></StackPanel>
+                                                <StackPanel Margin="0,0,12,10"><TextBlock Text="SERVER MUTED" Style="{StaticResource DetailLabelStyle}" /><TextBlock Text="{Binding ServerMuted}" Style="{StaticResource DetailValueStyle}" /></StackPanel>
+                                                <StackPanel Margin="0,0,0,10"><TextBlock Text="SERVER DEAFENED" Style="{StaticResource DetailLabelStyle}" /><TextBlock Text="{Binding ServerDeafened}" Style="{StaticResource DetailValueStyle}" /></StackPanel>
+                                                <StackPanel Margin="0,0,12,10"><TextBlock Text="STREAMING" Style="{StaticResource DetailLabelStyle}" /><TextBlock Text="{Binding Streaming}" Style="{StaticResource DetailValueStyle}" /></StackPanel>
+                                                <StackPanel Margin="0,0,0,10"><TextBlock Text="VIDEO" Style="{StaticResource DetailLabelStyle}" /><TextBlock Text="{Binding Video}" Style="{StaticResource DetailValueStyle}" /></StackPanel>
+                                                <StackPanel Margin="0,0,12,10"><TextBlock Text="STAGE SUPPRESSED" Style="{StaticResource DetailLabelStyle}" /><TextBlock Text="{Binding Suppressed}" Style="{StaticResource DetailValueStyle}" /></StackPanel>
+                                                <StackPanel Margin="0,0,0,10"><TextBlock Text="REQUEST TO SPEAK" Style="{StaticResource DetailLabelStyle}" /><TextBlock Text="{Binding RequestToSpeak}" Style="{StaticResource DetailValueStyle}" /></StackPanel>
+                                            </UniformGrid>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ContentControl.ContentTemplate>
+                            </ContentControl>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

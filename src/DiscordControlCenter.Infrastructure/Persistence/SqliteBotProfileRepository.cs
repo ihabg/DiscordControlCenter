@@ -15,7 +15,8 @@ public sealed class SqliteBotProfileRepository(SqliteConnectionFactory connectio
         command.CommandText =
             """
             SELECT Id, DisplayName, ProtectedToken, TokenFingerprint, IsEnabled, CreatedAt,
-                   DiscordUserId, DiscordUsername, AvatarUrl, LastConnectedAt
+                   DiscordUserId, DiscordUsername, AvatarUrl, LastConnectedAt,
+                   EnableFullMemberAccess
             FROM BotProfiles
             ORDER BY DisplayName COLLATE NOCASE;
             """;
@@ -35,7 +36,8 @@ public sealed class SqliteBotProfileRepository(SqliteConnectionFactory connectio
         command.CommandText =
             """
             SELECT Id, DisplayName, ProtectedToken, TokenFingerprint, IsEnabled, CreatedAt,
-                   DiscordUserId, DiscordUsername, AvatarUrl, LastConnectedAt
+                   DiscordUserId, DiscordUsername, AvatarUrl, LastConnectedAt,
+                   EnableFullMemberAccess
             FROM BotProfiles
             WHERE Id = $id;
             """;
@@ -54,10 +56,12 @@ public sealed class SqliteBotProfileRepository(SqliteConnectionFactory connectio
             """
             INSERT INTO BotProfiles
                 (Id, DisplayName, ProtectedToken, TokenFingerprint, IsEnabled, CreatedAt,
-                 DiscordUserId, DiscordUsername, AvatarUrl, LastConnectedAt)
+                 DiscordUserId, DiscordUsername, AvatarUrl, LastConnectedAt,
+                 EnableFullMemberAccess)
             VALUES
                 ($id, $displayName, $protectedToken, $tokenFingerprint, $isEnabled, $createdAt,
-                 $discordUserId, $discordUsername, $avatarUrl, $lastConnectedAt);
+                 $discordUserId, $discordUsername, $avatarUrl, $lastConnectedAt,
+                 $enableFullMemberAccess);
             """;
         AddParameters(command, profile);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
@@ -78,7 +82,8 @@ public sealed class SqliteBotProfileRepository(SqliteConnectionFactory connectio
                 DiscordUserId = $discordUserId,
                 DiscordUsername = $discordUsername,
                 AvatarUrl = $avatarUrl,
-                LastConnectedAt = $lastConnectedAt
+                LastConnectedAt = $lastConnectedAt,
+                EnableFullMemberAccess = $enableFullMemberAccess
             WHERE Id = $id;
             """;
         AddParameters(command, profile);
@@ -107,7 +112,8 @@ public sealed class SqliteBotProfileRepository(SqliteConnectionFactory connectio
             userIdText is null ? null : ulong.Parse(userIdText, CultureInfo.InvariantCulture),
             reader.IsDBNull(7) ? null : reader.GetString(7),
             reader.IsDBNull(8) ? null : reader.GetString(8),
-            reader.IsDBNull(9) ? null : ParseDate(reader.GetString(9)));
+            reader.IsDBNull(9) ? null : ParseDate(reader.GetString(9)),
+            reader.GetBoolean(10));
     }
 
     private static DateTimeOffset ParseDate(string value) =>
@@ -129,5 +135,8 @@ public sealed class SqliteBotProfileRepository(SqliteConnectionFactory connectio
         command.Parameters.AddWithValue(
             "$lastConnectedAt",
             profile.LastConnectedAt?.ToString("O") ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue(
+            "$enableFullMemberAccess",
+            profile.EnableFullMemberAccess);
     }
 }

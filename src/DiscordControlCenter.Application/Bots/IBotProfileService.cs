@@ -11,5 +11,9 @@ public interface IBotProfileService
         Guid botProfileId,
         string newToken,
         CancellationToken cancellationToken);
+    Task<OperationResult<BotProfile>> SetFullMemberAccessAsync(
+        Guid botProfileId,
+        bool enabled,
+        CancellationToken cancellationToken);
     Task<OperationResult> RemoveAsync(Guid botProfileId, CancellationToken cancellationToken);
 }

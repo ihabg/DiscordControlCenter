@@ -5,6 +5,9 @@ namespace DiscordControlCenter.Discord;
 
 public sealed class DiscordBotClientFactory(ILoggerFactory loggerFactory) : IDiscordBotClientFactory
 {
-    public IDiscordBotClient Create(Guid botProfileId) =>
-        new DiscordBotClient(botProfileId, loggerFactory.CreateLogger<DiscordBotClient>());
+    public IDiscordBotClient Create(Guid botProfileId, bool enableFullMemberAccess) =>
+        new DiscordBotClient(
+            botProfileId,
+            enableFullMemberAccess,
+            loggerFactory.CreateLogger<DiscordBotClient>());
 }

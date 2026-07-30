@@ -73,12 +73,17 @@ public partial class App : System.Windows.Application
                         services.AddSingleton<IBotExplorerService>(
                             provider => provider.GetRequiredService<BotConnectionManager>());
                         services.AddSingleton<IPermissionResolutionService, PermissionResolutionService>();
+                        services.AddSingleton<IRoleHierarchySafetyService, RoleHierarchySafetyService>();
                         services.AddSingleton<IBotProfileService, BotProfileService>();
                         services.AddSingleton<IUserDialogService, WpfUserDialogService>();
                         services.AddSingleton<DashboardViewModel>();
                         services.AddSingleton<BotsViewModel>();
                         services.AddSingleton<ServersViewModel>();
                         services.AddSingleton<ChannelsViewModel>();
+                        services.AddSingleton<MembersViewModel>();
+                        services.AddSingleton<RolesViewModel>();
+                        services.AddSingleton<PermissionSimulatorViewModel>();
+                        services.AddSingleton<VoiceViewModel>();
                         services.AddSingleton<MainWindowViewModel>();
                         services.AddSingleton<MainWindow>();
                     })

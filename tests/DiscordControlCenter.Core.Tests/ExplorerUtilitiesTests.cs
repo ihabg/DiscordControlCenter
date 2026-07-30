@@ -6,6 +6,21 @@ namespace DiscordControlCenter.Core.Tests;
 public sealed class ExplorerUtilitiesTests
 {
     [Fact]
+    public void RolesAreOrderedHighestFirstWithEveryoneLast()
+    {
+        var roles = new[]
+        {
+            new RoleReadModel(1, "@everyone", 0, PermissionBits.None, true),
+            new RoleReadModel(2, "Middle", 5, PermissionBits.None, false),
+            new RoleReadModel(3, "High", 10, PermissionBits.None, false)
+        };
+
+        var ordered = ExplorerSearch.OrderRoles(roles);
+
+        Assert.Equal([3UL, 2UL, 1UL], ordered.Select(role => role.Id));
+    }
+
+    [Fact]
     public void SynchronizationIgnoresOverwriteOrder()
     {
         var first = Overwrite(1, PermissionTargetKind.Role, 4, 8);

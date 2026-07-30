@@ -30,6 +30,7 @@ public sealed class BotProfileServiceTests
             System.Text.Encoding.UTF8.GetBytes("valid.token.value"),
             saved.ProtectedToken);
         Assert.Equal(1, validator.CallCount);
+        Assert.False(saved.EnableFullMemberAccess);
     }
 
     [Theory]
@@ -81,6 +82,32 @@ public sealed class BotProfileServiceTests
         Assert.False(result.IsSuccess);
         Assert.Contains("different Discord bot", result.Error);
         Assert.Equal(new byte[] { 1, 2 }, repository.Profiles[0].ProtectedToken);
+    }
+
+    [Fact]
+    public async Task FullMemberAccessIsAnExplicitPerProfileSetting()
+    {
+        var profile = new BotProfile(
+            Guid.NewGuid(),
+            "Members bot",
+            [1],
+            "fingerprint",
+            true,
+            DateTimeOffset.UtcNow);
+        var repository = new MemoryBotRepository(profile);
+        var service = CreateService(
+            repository,
+            new FakeTokenProtector(),
+            new FakeValidator());
+
+        var result = await service.SetFullMemberAccessAsync(
+            profile.Id,
+            true,
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.Value!.EnableFullMemberAccess);
+        Assert.True(repository.Profiles[0].EnableFullMemberAccess);
     }
 
     private static BotProfileService CreateService(

@@ -32,7 +32,17 @@ public enum PermissionBits : ulong
     MuteMembers = 1UL << 25,
     DeafenMembers = 1UL << 26,
     MoveMembers = 1UL << 27,
-    RequestToSpeak = 1UL << 28
+    RequestToSpeak = 1UL << 28,
+    CreateInvites = 1UL << 29,
+    ManageEvents = 1UL << 30,
+    ManageExpressions = 1UL << 31,
+    UseExternalEmojis = 1UL << 32,
+    UseExternalStickers = 1UL << 33,
+    ManageThreads = 1UL << 34,
+    UseSoundboard = 1UL << 35,
+    UseExternalSounds = 1UL << 36,
+    ManageNicknames = 1UL << 37,
+    ChangeNickname = 1UL << 38
 }
 
 public enum PermissionStatus
@@ -40,7 +50,8 @@ public enum PermissionStatus
     Allowed,
     Denied,
     NotApplicable,
-    AllowedThroughAdministrator
+    AllowedThroughAdministrator,
+    Unknown
 }
 
 public sealed record PermissionResult(

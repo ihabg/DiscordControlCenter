@@ -21,6 +21,7 @@ public sealed class PermissionStatusToBrushConverter : IValueConverter
             PermissionStatus.Allowed => "SuccessBrush",
             PermissionStatus.AllowedThroughAdministrator => "WarningBrush",
             PermissionStatus.NotApplicable => "TextMutedBrush",
+            PermissionStatus.Unknown => "TextSecondaryBrush",
             _ => "DangerTextBrush"
         };
         return System.Windows.Application.Current.FindResource(resourceKey);

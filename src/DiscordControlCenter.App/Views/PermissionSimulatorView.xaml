@@ -1,0 +1,146 @@
+<UserControl x:Class="DiscordControlCenter.App.Views.PermissionSimulatorView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+             Background="{StaticResource ContentBackgroundBrush}">
+    <Grid Margin="24,22">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <StackPanel>
+            <TextBlock Text="Member and role permission simulator"
+                       Style="{StaticResource PageHeadingStyle}" />
+            <TextBlock Text="Read-only effective permission comparison using Discord precedence. No action is executed."
+                       Style="{StaticResource SecondaryTextStyle}"
+                       Margin="0,4,0,0" />
+        </StackPanel>
+
+        <Border Grid.Row="1"
+                Style="{StaticResource PanelSurfaceStyle}"
+                Margin="0,16,0,14">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="14" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="14" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="FIRST SUBJECT" Style="{StaticResource DetailLabelStyle}" />
+                    <ComboBox ItemsSource="{Binding Subjects}"
+                              SelectedItem="{Binding FirstSubject}"
+                              Tag="Choose first subject"
+                              automation:AutomationProperties.Name="First permission subject" />
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="SECOND SUBJECT" Style="{StaticResource DetailLabelStyle}" />
+                    <ComboBox ItemsSource="{Binding Subjects}"
+                              SelectedItem="{Binding SecondSubject}"
+                              Tag="Choose second subject"
+                              automation:AutomationProperties.Name="Second permission subject" />
+                </StackPanel>
+                <StackPanel Grid.Column="4">
+                    <TextBlock Text="CHANNEL" Style="{StaticResource DetailLabelStyle}" />
+                    <ComboBox ItemsSource="{Binding Channels}"
+                              SelectedItem="{Binding SelectedChannel}"
+                              Tag="Choose accessible channel"
+                              automation:AutomationProperties.Name="Permission channel" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="2" Style="{StaticResource PanelSurfaceStyle}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <StackPanel Margin="0,0,0,12">
+                    <TextBlock Text="{Binding CompletenessMessage}"
+                               Foreground="{StaticResource WarningBrush}"
+                               TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding StateMessage}"
+                               Style="{StaticResource SecondaryTextStyle}"
+                               TextWrapping="Wrap"
+                               Margin="0,4,0,0" />
+                </StackPanel>
+                <Grid Grid.Row="1">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="38" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <Grid Background="{StaticResource ElevatedSurfaceBrush}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="120" />
+                            <ColumnDefinition Width="2*" />
+                            <ColumnDefinition Width="1.5*" />
+                            <ColumnDefinition Width="1.5*" />
+                            <ColumnDefinition Width="1.4*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="GROUP" Margin="10,0" Style="{StaticResource TableHeaderTextStyle}" />
+                        <TextBlock Grid.Column="1" Text="PERMISSION" Style="{StaticResource TableHeaderTextStyle}" />
+                        <TextBlock Grid.Column="2" Text="FIRST" Style="{StaticResource TableHeaderTextStyle}" />
+                        <TextBlock Grid.Column="3" Text="SECOND" Style="{StaticResource TableHeaderTextStyle}" />
+                        <TextBlock Grid.Column="4" Text="COMPARISON" Style="{StaticResource TableHeaderTextStyle}" />
+                    </Grid>
+                    <ListBox Grid.Row="1"
+                             ItemsSource="{Binding Comparison}"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             ScrollViewer.CanContentScroll="True"
+                             VirtualizingPanel.IsVirtualizing="True"
+                             VirtualizingPanel.VirtualizationMode="Recycling"
+                             automation:AutomationProperties.Name="Permission comparison results">
+                        <ListBox.ItemContainerStyle>
+                            <StaticResource ResourceKey="DataRowContainerStyle" />
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="10,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="110" />
+                                        <ColumnDefinition Width="2*" />
+                                        <ColumnDefinition Width="1.5*" />
+                                        <ColumnDefinition Width="1.5*" />
+                                        <ColumnDefinition Width="1.4*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding Group}"
+                                               Foreground="{StaticResource TextSecondaryBrush}" />
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding Name}"
+                                               Foreground="{StaticResource TextPrimaryBrush}"
+                                               FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal">
+                                        <TextBlock Text="●"
+                                                   Foreground="{Binding FirstStatus, Converter={StaticResource PermissionStatusToBrushConverter}}"
+                                                   Margin="0,0,6,0" />
+                                        <TextBlock Text="{Binding FirstStatus, Converter={StaticResource PermissionStatusToTextConverter}}"
+                                                   Foreground="{StaticResource TextPrimaryBrush}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="3" Orientation="Horizontal">
+                                        <TextBlock Text="●"
+                                                   Foreground="{Binding SecondStatus, Converter={StaticResource PermissionStatusToBrushConverter}}"
+                                                   Margin="0,0,6,0" />
+                                        <TextBlock Text="{Binding SecondStatus, Converter={StaticResource PermissionStatusToTextConverter}}"
+                                                   Foreground="{StaticResource TextPrimaryBrush}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="4"
+                                               Text="{Binding Comparison}"
+                                               Foreground="{StaticResource TextPrimaryBrush}"
+                                               TextTrimming="CharacterEllipsis"
+                                               ToolTip="{Binding Comparison}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

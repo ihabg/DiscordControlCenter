@@ -19,6 +19,7 @@ public sealed class BotConnectionManagerTests
             repository,
             new PlainTestProtector(),
             factory,
+            new PermissionResolutionService(),
             NullLogger<BotConnectionManager>.Instance);
         await manager.InitializeAsync(CancellationToken.None);
 
@@ -46,8 +47,12 @@ public sealed class BotConnectionManagerTests
 
     private sealed class FakeClientFactory(Guid failingId) : IDiscordBotClientFactory
     {
-        public IDiscordBotClient Create(Guid botProfileId) =>
+        public IDiscordBotClient Create(Guid botProfileId, bool enableFullMemberAccess)
+        {
+            _ = enableFullMemberAccess;
+            return
             new FakeClient(botProfileId, botProfileId == failingId);
+        }
     }
 
     private sealed class FakeClient(Guid id, bool shouldFail) : IDiscordBotClient
@@ -96,6 +101,13 @@ public sealed class BotConnectionManagerTests
                 DateTimeOffset.UtcNow);
             ExplorerChanged?.Invoke(this, update);
             return Task.FromResult(update);
+        }
+
+        public Task LoadMembersAsync(ulong serverId, CancellationToken cancellationToken)
+        {
+            _ = serverId;
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.CompletedTask;
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;

@@ -9,10 +9,69 @@ public sealed class PermissionResolutionService : IPermissionResolutionService
     private const string GeneralGroup = "General";
     private const string TextGroup = "Text";
     private const string VoiceGroup = "Voice";
+    private const string ModerationGroup = "Moderation";
     private const string ServerGroup = "Server";
     private static readonly PermissionBits AllPermissions = Enum
         .GetValues<PermissionBits>()
         .Aggregate(PermissionBits.None, (current, permission) => current | permission);
+    private static readonly Definition[] Definitions =
+    [
+        new(GeneralGroup, "View Channel", PermissionBits.ViewChannel, Scope.AllChannels),
+        new(GeneralGroup, "Manage Channel", PermissionBits.ManageChannels, Scope.AllChannels),
+        new(GeneralGroup, "Manage Server", PermissionBits.ManageServer, Scope.Always),
+        new(GeneralGroup, "Manage Roles", PermissionBits.ManageRoles, Scope.Always),
+        new(GeneralGroup, "Manage Webhooks", PermissionBits.ManageWebhooks, Scope.Text),
+        new(GeneralGroup, "View Audit Log", PermissionBits.ViewAuditLog, Scope.Always),
+        new(GeneralGroup, "Create Invites", PermissionBits.CreateInvites, Scope.AllChannels),
+        new(GeneralGroup, "Manage Events", PermissionBits.ManageEvents, Scope.Always),
+        new(GeneralGroup, "Manage Expressions", PermissionBits.ManageExpressions, Scope.Always),
+        new(TextGroup, "Send Messages", PermissionBits.SendMessages, Scope.Text),
+        new(TextGroup, "Send Messages in Threads", PermissionBits.SendMessagesInThreads, Scope.Text),
+        new(TextGroup, "Create Public Threads", PermissionBits.CreatePublicThreads, Scope.Text),
+        new(TextGroup, "Create Private Threads", PermissionBits.CreatePrivateThreads, Scope.Text),
+        new(TextGroup, "Embed Links", PermissionBits.EmbedLinks, Scope.Text),
+        new(TextGroup, "Attach Files", PermissionBits.AttachFiles, Scope.Text),
+        new(TextGroup, "Add Reactions", PermissionBits.AddReactions, Scope.Text),
+        new(TextGroup, "Use External Emojis", PermissionBits.UseExternalEmojis, Scope.Text),
+        new(TextGroup, "Use External Stickers", PermissionBits.UseExternalStickers, Scope.Text),
+        new(TextGroup, "Read Message History", PermissionBits.ReadMessageHistory, Scope.Text),
+        new(TextGroup, "Mention Everyone", PermissionBits.MentionEveryone, Scope.Text),
+        new(TextGroup, "Manage Messages", PermissionBits.ManageMessages, Scope.Text),
+        new(TextGroup, "Manage Threads", PermissionBits.ManageThreads, Scope.Text),
+        new(VoiceGroup, "Connect", PermissionBits.Connect, Scope.Voice),
+        new(VoiceGroup, "Speak", PermissionBits.Speak, Scope.Voice),
+        new(VoiceGroup, "Stream", PermissionBits.Stream, Scope.Voice),
+        new(VoiceGroup, "Use Voice Activity", PermissionBits.UseVoiceActivity, Scope.Voice),
+        new(VoiceGroup, "Priority Speaker", PermissionBits.PrioritySpeaker, Scope.Voice),
+        new(VoiceGroup, "Mute Members", PermissionBits.MuteMembers, Scope.Voice),
+        new(VoiceGroup, "Deafen Members", PermissionBits.DeafenMembers, Scope.Voice),
+        new(VoiceGroup, "Move Members", PermissionBits.MoveMembers, Scope.Voice),
+        new(VoiceGroup, "Request to Speak", PermissionBits.RequestToSpeak, Scope.Stage),
+        new(VoiceGroup, "Use Soundboard", PermissionBits.UseSoundboard, Scope.Voice),
+        new(VoiceGroup, "Use External Sounds", PermissionBits.UseExternalSounds, Scope.Voice),
+        new(ModerationGroup, "Kick Members", PermissionBits.KickMembers, Scope.Always),
+        new(ModerationGroup, "Ban Members", PermissionBits.BanMembers, Scope.Always),
+        new(ModerationGroup, "Moderate Members", PermissionBits.ModerateMembers, Scope.Always),
+        new(ModerationGroup, "Manage Nicknames", PermissionBits.ManageNicknames, Scope.Always),
+        new(ModerationGroup, "Change Nickname", PermissionBits.ChangeNickname, Scope.Always)
+    ];
+    private static readonly Definition[] ServerDefinitions =
+    [
+        new(ServerGroup, "Administrator", PermissionBits.Administrator, Scope.Always),
+        new(ServerGroup, "Manage Channels", PermissionBits.ManageChannels, Scope.Always),
+        new(ServerGroup, "Manage Roles", PermissionBits.ManageRoles, Scope.Always),
+        new(ServerGroup, "Manage Server", PermissionBits.ManageServer, Scope.Always),
+        new(ServerGroup, "View Audit Log", PermissionBits.ViewAuditLog, Scope.Always),
+        new(ServerGroup, "Manage Webhooks", PermissionBits.ManageWebhooks, Scope.Always),
+        new(ServerGroup, "Kick Members", PermissionBits.KickMembers, Scope.Always),
+        new(ServerGroup, "Ban Members", PermissionBits.BanMembers, Scope.Always),
+        new(ServerGroup, "Moderate Members", PermissionBits.ModerateMembers, Scope.Always),
+        new(ServerGroup, "Connect", PermissionBits.Connect, Scope.Always),
+        new(ServerGroup, "Speak", PermissionBits.Speak, Scope.Always),
+        new(ServerGroup, "Move Members", PermissionBits.MoveMembers, Scope.Always),
+        new(ServerGroup, "Mute Members", PermissionBits.MuteMembers, Scope.Always),
+        new(ServerGroup, "Deafen Members", PermissionBits.DeafenMembers, Scope.Always)
+    ];
     private readonly ConcurrentDictionary<PermissionCacheKey, PermissionResolution> _cache = new();
 
     public int CachedEntryCount => _cache.Count;
@@ -22,8 +81,15 @@ public sealed class PermissionResolutionService : IPermissionResolutionService
         long snapshotVersion,
         ServerReadModel server) =>
         _cache.GetOrAdd(
-            new PermissionCacheKey(botProfileId, server.Id, 0, snapshotVersion),
-            _ => BuildServerResolution(server));
+            new PermissionCacheKey(botProfileId, server.Id, 0, snapshotVersion, SubjectKind.Bot, server.BotUserId),
+            _ => BuildResolution(
+                server,
+                null,
+                server.BotRoleIds,
+                server.BotUserId,
+                rolesComplete: true,
+                "Bot member overwrite",
+                serverOnly: true));
 
     public PermissionResolution ResolveChannel(
         Guid botProfileId,
@@ -31,8 +97,90 @@ public sealed class PermissionResolutionService : IPermissionResolutionService
         ServerReadModel server,
         ChannelReadModel channel) =>
         _cache.GetOrAdd(
-            new PermissionCacheKey(botProfileId, server.Id, channel.Id, snapshotVersion),
-            _ => BuildChannelResolution(server, channel));
+            new PermissionCacheKey(
+                botProfileId,
+                server.Id,
+                channel.Id,
+                snapshotVersion,
+                SubjectKind.Bot,
+                server.BotUserId),
+            _ => BuildResolution(
+                server,
+                channel,
+                server.BotRoleIds,
+                server.BotUserId,
+                rolesComplete: true,
+                "Bot member overwrite",
+                serverOnly: false));
+
+    public PermissionResolution ResolveMember(
+        Guid botProfileId,
+        long snapshotVersion,
+        ServerReadModel server,
+        MemberReadModel member,
+        ChannelReadModel? channel) =>
+        _cache.GetOrAdd(
+            new PermissionCacheKey(
+                botProfileId,
+                server.Id,
+                channel?.Id ?? 0,
+                snapshotVersion,
+                SubjectKind.Member,
+                member.Id),
+            _ => BuildResolution(
+                server,
+                channel,
+                member.RoleIds,
+                member.Id,
+                member.RolesAreComplete,
+                "Member-specific overwrite",
+                serverOnly: false));
+
+    public PermissionResolution ResolveRole(
+        Guid botProfileId,
+        long snapshotVersion,
+        ServerReadModel server,
+        RoleReadModel role,
+        ChannelReadModel? channel) =>
+        _cache.GetOrAdd(
+            new PermissionCacheKey(
+                botProfileId,
+                server.Id,
+                channel?.Id ?? 0,
+                snapshotVersion,
+                SubjectKind.Role,
+                role.Id),
+            _ => BuildResolution(
+                server,
+                channel,
+                role.IsEveryone ? [] : [role.Id],
+                null,
+                rolesComplete: true,
+                null,
+                serverOnly: false));
+
+    public PermissionComparison Compare(
+        PermissionResolution first,
+        PermissionResolution second)
+    {
+        var secondByPermission = second.Permissions.ToDictionary(item => item.Permission);
+        var items = first.Permissions
+            .Where(item => secondByPermission.ContainsKey(item.Permission))
+            .Select(
+                item =>
+                {
+                    var other = secondByPermission[item.Permission];
+                    return new PermissionComparisonItem(
+                        item.Group,
+                        item.Name,
+                        item.Permission,
+                        item.Status,
+                        other.Status,
+                        Compare(item.Status, other.Status));
+                })
+            .ToArray();
+        return new PermissionComparison(new ReadOnlyCollection<PermissionComparisonItem>(items));
+    }
 
     public void Invalidate(Guid botProfileId, ulong? serverId = null)
     {
@@ -46,111 +194,56 @@ public sealed class PermissionResolutionService : IPermissionResolutionService
         }
     }
 
-    private static PermissionResolution BuildServerResolution(ServerReadModel server)
-    {
-        var calculation = CalculateBase(server);
-        var definitions = new[]
-        {
-            ("Administrator", PermissionBits.Administrator),
-            ("Manage Channels", PermissionBits.ManageChannels),
-            ("Manage Roles", PermissionBits.ManageRoles),
-            ("Manage Server", PermissionBits.ManageServer),
-            ("View Audit Log", PermissionBits.ViewAuditLog),
-            ("Manage Webhooks", PermissionBits.ManageWebhooks),
-            ("Kick Members", PermissionBits.KickMembers),
-            ("Ban Members", PermissionBits.BanMembers),
-            ("Moderate Members", PermissionBits.ModerateMembers),
-            ("Connect", PermissionBits.Connect),
-            ("Speak", PermissionBits.Speak),
-            ("Move Members", PermissionBits.MoveMembers),
-            ("Mute Members", PermissionBits.MuteMembers),
-            ("Deafen Members", PermissionBits.DeafenMembers)
-        };
-        var permissions = definitions
-            .Select(definition => Resolve(
-                ServerGroup,
-                definition.Item1,
-                definition.Item2,
-                calculation,
-                applicable: true))
-            .ToArray();
-        return new PermissionResolution(
-            calculation.Effective,
-            new ReadOnlyCollection<PermissionResult>(permissions));
-    }
-
-    private static PermissionResolution BuildChannelResolution(
+    private static PermissionResolution BuildResolution(
         ServerReadModel server,
-        ChannelReadModel channel)
+        ChannelReadModel? channel,
+        IEnumerable<ulong> roleIds,
+        ulong? memberId,
+        bool rolesComplete,
+        string? memberOverwriteSource,
+        bool serverOnly)
     {
-        var calculation = CalculateBase(server);
-        if (!calculation.Administrator)
+        var calculation = CalculateBase(server, roleIds, rolesComplete);
+        if (channel is not null && !calculation.Administrator && calculation.IsComplete)
         {
-            calculation = ApplyChannelOverwrites(server, channel, calculation);
+            calculation = ApplyChannelOverwrites(
+                server,
+                channel,
+                roleIds,
+                memberId,
+                memberOverwriteSource,
+                calculation);
         }
 
-        var isText = channel.Kind is ChannelKind.Text
-            or ChannelKind.Announcement
-            or ChannelKind.Forum
-            or ChannelKind.Media
-            or ChannelKind.Thread;
-        var isVoice = channel.Kind is ChannelKind.Voice or ChannelKind.Stage;
-        var definitions = new[]
-        {
-            new Definition(GeneralGroup, "View Channel", PermissionBits.ViewChannel, true),
-            new Definition(GeneralGroup, "Manage Channel", PermissionBits.ManageChannels, true),
-            new Definition(GeneralGroup, "Manage Roles", PermissionBits.ManageRoles, true),
-            new Definition(GeneralGroup, "Manage Webhooks", PermissionBits.ManageWebhooks, isText),
-            new Definition(GeneralGroup, "View Audit Log", PermissionBits.ViewAuditLog, true),
-            new Definition(TextGroup, "Send Messages", PermissionBits.SendMessages, isText),
-            new Definition(TextGroup, "Send Messages in Threads", PermissionBits.SendMessagesInThreads, isText),
-            new Definition(TextGroup, "Create Public Threads", PermissionBits.CreatePublicThreads, isText),
-            new Definition(TextGroup, "Create Private Threads", PermissionBits.CreatePrivateThreads, isText),
-            new Definition(TextGroup, "Embed Links", PermissionBits.EmbedLinks, isText),
-            new Definition(TextGroup, "Attach Files", PermissionBits.AttachFiles, isText),
-            new Definition(TextGroup, "Add Reactions", PermissionBits.AddReactions, isText),
-            new Definition(TextGroup, "Manage Messages", PermissionBits.ManageMessages, isText),
-            new Definition(TextGroup, "Read Message History", PermissionBits.ReadMessageHistory, isText),
-            new Definition(TextGroup, "Mention Everyone", PermissionBits.MentionEveryone, isText),
-            new Definition(VoiceGroup, "Connect", PermissionBits.Connect, isVoice),
-            new Definition(VoiceGroup, "Speak", PermissionBits.Speak, isVoice),
-            new Definition(VoiceGroup, "Stream", PermissionBits.Stream, isVoice),
-            new Definition(VoiceGroup, "Use Voice Activity", PermissionBits.UseVoiceActivity, isVoice),
-            new Definition(VoiceGroup, "Priority Speaker", PermissionBits.PrioritySpeaker, isVoice),
-            new Definition(VoiceGroup, "Mute Members", PermissionBits.MuteMembers, isVoice),
-            new Definition(VoiceGroup, "Deafen Members", PermissionBits.DeafenMembers, isVoice),
-            new Definition(VoiceGroup, "Move Members", PermissionBits.MoveMembers, isVoice),
-            new Definition(VoiceGroup, "Request to Speak", PermissionBits.RequestToSpeak, channel.Kind == ChannelKind.Stage)
-        };
+        var definitions = serverOnly ? ServerDefinitions : Definitions;
         var permissions = definitions
-            .Select(definition => Resolve(
-                definition.Group,
-                definition.Name,
-                definition.Permission,
-                calculation,
-                definition.Applicable))
+            .Select(definition => Resolve(definition, channel, calculation))
             .ToArray();
         return new PermissionResolution(
             calculation.Effective,
             new ReadOnlyCollection<PermissionResult>(permissions));
     }
 
-    private static Calculation CalculateBase(ServerReadModel server)
+    private static Calculation CalculateBase(
+        ServerReadModel server,
+        IEnumerable<ulong> roleIds,
+        bool rolesComplete)
     {
         var everyone = server.Roles.FirstOrDefault(role => role.IsEveryone);
         var effective = everyone?.Permissions ?? PermissionBits.None;
         var sources = new Dictionary<PermissionBits, string>();
         foreach (var permission in EnumerateFlags(effective))
         {
-            sources[permission] = "Server role (@everyone)";
+            sources[permission] = "Base @everyone permissions";
         }
 
-        foreach (var role in server.Roles.Where(role => server.BotRoleIds.Contains(role.Id)))
+        var roleIdSet = roleIds.ToHashSet();
+        foreach (var role in server.Roles.Where(role => roleIdSet.Contains(role.Id)))
         {
             effective |= role.Permissions;
             foreach (var permission in EnumerateFlags(role.Permissions))
             {
-                sources[permission] = "Server role";
+                sources[permission] = "Aggregated role permissions";
             }
         }
 
@@ -164,74 +257,78 @@ public sealed class PermissionResolutionService : IPermissionResolutionService
             }
         }
 
-        return new Calculation(effective, administrator, sources);
+        return new Calculation(effective, administrator, rolesComplete && everyone is not null, sources);
     }
 
     private static Calculation ApplyChannelOverwrites(
         ServerReadModel server,
         ChannelReadModel channel,
+        IEnumerable<ulong> roleIds,
+        ulong? memberId,
+        string? memberOverwriteSource,
         Calculation calculation)
     {
         var effective = calculation.Effective;
         var sources = new Dictionary<PermissionBits, string>(calculation.Sources);
-        var everyone = server.Roles.FirstOrDefault(role => role.IsEveryone);
-        if (everyone is not null)
+        var everyone = server.Roles.First(role => role.IsEveryone);
+        var everyoneOverwrite = channel.PermissionOverwrites.FirstOrDefault(item =>
+            item.TargetType == PermissionTargetKind.Role && item.TargetId == everyone.Id);
+        if (everyoneOverwrite is not null)
         {
-            var overwrite = channel.PermissionOverwrites.FirstOrDefault(item =>
-                item.TargetType == PermissionTargetKind.Role && item.TargetId == everyone.Id);
-            if (overwrite is not null)
-            {
-                effective = ApplyOverwrite(
-                    effective,
-                    overwrite.Denied,
-                    overwrite.Allowed,
-                    sources,
-                    channel.IsPermissionSynchronized == true
-                        ? "Category inheritance (@everyone overwrite)"
-                        : "@everyone overwrite");
-            }
+            effective = ApplyOverwrite(
+                effective,
+                everyoneOverwrite.Denied,
+                everyoneOverwrite.Allowed,
+                sources,
+                channel.IsPermissionSynchronized == true
+                    ? "Category @everyone overwrite"
+                    : "@everyone channel overwrite");
         }
 
+        var roleIdSet = roleIds.ToHashSet();
         var roleOverwrites = channel.PermissionOverwrites
             .Where(overwrite =>
                 overwrite.TargetType == PermissionTargetKind.Role
-                && overwrite.TargetId != everyone?.Id
-                && server.BotRoleIds.Contains(overwrite.TargetId))
+                && overwrite.TargetId != everyone.Id
+                && roleIdSet.Contains(overwrite.TargetId))
             .ToArray();
-        var roleDenied = roleOverwrites.Aggregate(
-            PermissionBits.None,
-            (current, overwrite) => current | overwrite.Denied);
-        var roleAllowed = roleOverwrites.Aggregate(
-            PermissionBits.None,
-            (current, overwrite) => current | overwrite.Allowed);
         if (roleOverwrites.Length > 0)
         {
+            var denied = roleOverwrites.Aggregate(
+                PermissionBits.None,
+                (current, overwrite) => current | overwrite.Denied);
+            var allowed = roleOverwrites.Aggregate(
+                PermissionBits.None,
+                (current, overwrite) => current | overwrite.Allowed);
             effective = ApplyOverwrite(
                 effective,
-                roleDenied,
-                roleAllowed,
+                denied,
+                allowed,
                 sources,
                 channel.IsPermissionSynchronized == true
-                    ? "Category inheritance (role overwrite)"
+                    ? "Category role overwrites"
                     : "Role overwrite");
         }
 
-        var memberOverwrite = channel.PermissionOverwrites.FirstOrDefault(overwrite =>
-            overwrite.TargetType == PermissionTargetKind.User
-            && overwrite.TargetId == server.BotUserId);
-        if (memberOverwrite is not null)
+        if (memberId is ulong id)
         {
-            effective = ApplyOverwrite(
-                effective,
-                memberOverwrite.Denied,
-                memberOverwrite.Allowed,
-                sources,
-                channel.IsPermissionSynchronized == true
-                    ? "Category inheritance (bot member overwrite)"
-                    : "Bot member overwrite");
+            var memberOverwrite = channel.PermissionOverwrites.FirstOrDefault(overwrite =>
+                overwrite.TargetType == PermissionTargetKind.User
+                && overwrite.TargetId == id);
+            if (memberOverwrite is not null)
+            {
+                effective = ApplyOverwrite(
+                    effective,
+                    memberOverwrite.Denied,
+                    memberOverwrite.Allowed,
+                    sources,
+                    channel.IsPermissionSynchronized == true
+                        ? $"Category {memberOverwriteSource?.ToLowerInvariant()}"
+                        : memberOverwriteSource ?? "Member-specific overwrite");
+            }
         }
 
-        return new Calculation(effective, false, sources);
+        return new Calculation(effective, false, true, sources);
     }
 
     private static PermissionBits ApplyOverwrite(
@@ -241,8 +338,7 @@ public sealed class PermissionResolutionService : IPermissionResolutionService
         Dictionary<PermissionBits, string> sources,
         string source)
     {
-        var changed = denied | allowed;
-        foreach (var permission in EnumerateFlags(changed))
+        foreach (var permission in EnumerateFlags(denied | allowed))
         {
             sources[permission] = source;
         }
@@ -251,30 +347,86 @@ public sealed class PermissionResolutionService : IPermissionResolutionService
     }
 
     private static PermissionResult Resolve(
-        string group,
-        string name,
-        PermissionBits permission,
-        Calculation calculation,
-        bool applicable)
+        Definition definition,
+        ChannelReadModel? channel,
+        Calculation calculation)
     {
-        if (!applicable)
+        if (!IsApplicable(definition.Scope, channel))
         {
             return new PermissionResult(
-                group,
-                name,
-                permission,
+                definition.Group,
+                definition.Name,
+                definition.Permission,
                 PermissionStatus.NotApplicable,
                 null);
         }
 
-        var allowed = calculation.Effective.Has(permission);
-        var status = calculation.Administrator && permission != PermissionBits.Administrator
-            ? PermissionStatus.AllowedThroughAdministrator
-            : allowed
-                ? PermissionStatus.Allowed
-                : PermissionStatus.Denied;
-        calculation.Sources.TryGetValue(permission, out var source);
-        return new PermissionResult(group, name, permission, status, source);
+        if (!calculation.IsComplete)
+        {
+            return new PermissionResult(
+                definition.Group,
+                definition.Name,
+                definition.Permission,
+                PermissionStatus.Unknown,
+                "Complete member-role data is unavailable");
+        }
+
+        var allowed = calculation.Effective.Has(definition.Permission);
+        var status = calculation.Administrator
+            && definition.Permission != PermissionBits.Administrator
+                ? PermissionStatus.AllowedThroughAdministrator
+                : allowed
+                    ? PermissionStatus.Allowed
+                    : PermissionStatus.Denied;
+        calculation.Sources.TryGetValue(definition.Permission, out var source);
+        return new PermissionResult(
+            definition.Group,
+            definition.Name,
+            definition.Permission,
+            status,
+            source);
+    }
+
+    private static bool IsApplicable(Scope scope, ChannelReadModel? channel) =>
+        scope switch
+        {
+            Scope.Always => true,
+            Scope.AllChannels => channel is not null,
+            Scope.Text => channel?.Kind is ChannelKind.Text
+                or ChannelKind.Announcement
+                or ChannelKind.Forum
+                or ChannelKind.Media
+                or ChannelKind.Thread,
+            Scope.Voice => channel?.Kind is ChannelKind.Voice or ChannelKind.Stage,
+            Scope.Stage => channel?.Kind == ChannelKind.Stage,
+            _ => false
+        };
+
+    private static PermissionComparisonStatus Compare(
+        PermissionStatus first,
+        PermissionStatus second)
+    {
+        if (first == PermissionStatus.Unknown || second == PermissionStatus.Unknown)
+        {
+            return PermissionComparisonStatus.Unknown;
+        }
+
+        if (first == PermissionStatus.NotApplicable || second == PermissionStatus.NotApplicable)
+        {
+            return PermissionComparisonStatus.NotApplicable;
+        }
+
+        var firstAllowed = first is PermissionStatus.Allowed
+            or PermissionStatus.AllowedThroughAdministrator;
+        var secondAllowed = second is PermissionStatus.Allowed
+            or PermissionStatus.AllowedThroughAdministrator;
+        return (firstAllowed, secondAllowed) switch
+        {
+            (true, true) => PermissionComparisonStatus.BothAllowed,
+            (true, false) => PermissionComparisonStatus.FirstOnly,
+            (false, true) => PermissionComparisonStatus.SecondOnly,
+            _ => PermissionComparisonStatus.BothDenied
+        };
     }
 
     private static IEnumerable<PermissionBits> EnumerateFlags(PermissionBits permissions)
@@ -292,16 +444,35 @@ public sealed class PermissionResolutionService : IPermissionResolutionService
         Guid BotProfileId,
         ulong ServerId,
         ulong ChannelId,
-        long SnapshotVersion);
+        long SnapshotVersion,
+        SubjectKind SubjectKind,
+        ulong SubjectId);
 
     private sealed record Calculation(
         PermissionBits Effective,
         bool Administrator,
+        bool IsComplete,
         Dictionary<PermissionBits, string> Sources);
 
     private sealed record Definition(
         string Group,
         string Name,
         PermissionBits Permission,
-        bool Applicable);
+        Scope Scope);
+
+    private enum Scope
+    {
+        Always,
+        AllChannels,
+        Text,
+        Voice,
+        Stage
+    }
+
+    private enum SubjectKind
+    {
+        Bot,
+        Member,
+        Role
+    }
 }

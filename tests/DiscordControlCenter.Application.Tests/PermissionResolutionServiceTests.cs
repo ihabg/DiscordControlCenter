@@ -121,6 +121,134 @@ public sealed class PermissionResolutionServiceTests
             refreshed.Permissions.Single(item => item.Permission == PermissionBits.SendMessages).Status);
     }
 
+    [Fact]
+    public void MemberUsesEveryoneAndAggregatedRolePermissions()
+    {
+        var service = new PermissionResolutionService();
+        var server = Server(PermissionBits.SendMessages | PermissionBits.AttachFiles);
+        var member = Member(500, rolesComplete: true);
+
+        var resolution = service.ResolveMember(
+            BotProfileId,
+            1,
+            server,
+            member,
+            Channel());
+
+        Assert.Equal(
+            PermissionStatus.Allowed,
+            resolution.Permissions.Single(
+                item => item.Permission == PermissionBits.ViewChannel).Status);
+        Assert.Equal(
+            PermissionStatus.Allowed,
+            resolution.Permissions.Single(
+                item => item.Permission == PermissionBits.AttachFiles).Status);
+    }
+
+    [Fact]
+    public void MemberSpecificDenyOverridesRoleAllow()
+    {
+        var service = new PermissionResolutionService();
+        var server = Server(PermissionBits.SendMessages);
+        var member = Member(500, rolesComplete: true);
+        var channel = Channel(
+            new PermissionOverwriteReadModel(
+                20,
+                PermissionTargetKind.Role,
+                1,
+                0,
+                PermissionBits.SendMessages,
+                PermissionBits.None),
+            new PermissionOverwriteReadModel(
+                500,
+                PermissionTargetKind.User,
+                0,
+                1,
+                PermissionBits.None,
+                PermissionBits.SendMessages));
+
+        var resolution = service.ResolveMember(
+            BotProfileId,
+            1,
+            server,
+            member,
+            channel);
+
+        var send = resolution.Permissions.Single(
+            item => item.Permission == PermissionBits.SendMessages);
+        Assert.Equal(PermissionStatus.Denied, send.Status);
+        Assert.Equal("Member-specific overwrite", send.Source);
+    }
+
+    [Fact]
+    public void IncompleteMemberRolesProduceUnknown()
+    {
+        var service = new PermissionResolutionService();
+        var member = Member(500, rolesComplete: false);
+
+        var resolution = service.ResolveMember(
+            BotProfileId,
+            1,
+            Server(PermissionBits.SendMessages),
+            member,
+            Channel());
+
+        Assert.All(
+            resolution.Permissions.Where(item => item.Status != PermissionStatus.NotApplicable),
+            item => Assert.Equal(PermissionStatus.Unknown, item.Status));
+    }
+
+    [Fact]
+    public void ComparisonHighlightsBothSidesAndDifferences()
+    {
+        var service = new PermissionResolutionService();
+        var firstRole = new RoleReadModel(
+            30,
+            "First",
+            2,
+            PermissionBits.SendMessages,
+            false);
+        var secondRole = new RoleReadModel(
+            31,
+            "Second",
+            2,
+            PermissionBits.AttachFiles,
+            false);
+        var baseServer = Server(PermissionBits.ViewChannel);
+        var server = baseServer with
+        {
+            Roles = baseServer.Roles.Add(firstRole).Add(secondRole),
+            RoleCount = baseServer.RoleCount + 2
+        };
+        var first = service.ResolveRole(
+            BotProfileId,
+            1,
+            server,
+            firstRole,
+            Channel());
+        var second = service.ResolveRole(
+            BotProfileId,
+            1,
+            server,
+            secondRole,
+            Channel());
+
+        var comparison = service.Compare(first, second);
+
+        Assert.Equal(
+            PermissionComparisonStatus.FirstOnly,
+            comparison.Permissions.Single(
+                item => item.Permission == PermissionBits.SendMessages).Comparison);
+        Assert.Equal(
+            PermissionComparisonStatus.SecondOnly,
+            comparison.Permissions.Single(
+                item => item.Permission == PermissionBits.AttachFiles).Comparison);
+        Assert.Equal(
+            PermissionComparisonStatus.BothAllowed,
+            comparison.Permissions.Single(
+                item => item.Permission == PermissionBits.ViewChannel).Comparison);
+    }
+
     private static ServerReadModel Server(PermissionBits botRolePermissions)
     {
         var roles = ImmutableArray.Create(
@@ -179,4 +307,24 @@ public sealed class PermissionResolutionServiceTests
             null,
             null,
             null);
+
+    private static MemberReadModel Member(ulong id, bool rolesComplete) =>
+        new(
+            id,
+            "member",
+            null,
+            null,
+            "member",
+            null,
+            false,
+            DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow,
+            [20],
+            "Bot",
+            10,
+            null,
+            false,
+            null,
+            null,
+            rolesComplete);
 }

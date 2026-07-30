@@ -2,17 +2,23 @@
 
 ## Dependency direction
 
-`App` composes the process and depends on `Application`, `Infrastructure`, and
-`Discord`. `Application` coordinates use cases against contracts and domain models
-from `Core`. `Infrastructure` implements persistence and protection contracts.
-`Discord` implements authenticated REST validation, gateway clients, and translation
-from Discord.Net socket entities.
+The project boundary remains:
 
-Neither WPF ViewModels nor views reference Discord.Net. Socket entities are translated
-inside `DiscordControlCenter.Discord` into immutable explorer read models from
-`DiscordControlCenter.Core`.
+`Discord.Net gateway/REST → Discord adapter/translators → Application cache/services → ViewModels → WPF views`
 
-## Runtime ownership
+- `Core` owns immutable read models, completeness/status enums, permission comparison,
+  and hierarchy-preflight result types.
+- `Application` owns profile/connection use cases, the per-runtime cache, permission
+  resolution, and hierarchy safety policy.
+- `Discord` is the only project allowed to reference Discord.Net. It owns clients,
+  gateway subscriptions, paginated member retrieval, and translation.
+- `Infrastructure` owns SQLite, audit persistence, and DPAPI protection.
+- `App` composes services and owns WPF state, cancellation generations, filtering,
+  virtualization, and accessible presentation.
+
+No ViewModel retains a Discord.Net entity. No Core/Application/App type exposes one.
+
+## Runtime and cache ownership
 
 `BotConnectionManager` owns one `BotRuntime` per connected profile. A runtime owns:
 
@@ -20,138 +26,222 @@ inside `DiscordControlCenter.Discord` into immutable explorer read models from
 - one lifecycle semaphore;
 - one `BotExplorerCache`.
 
-No runtime, cache, or permission calculation is shared between bot profile IDs. A
-failure or cancellation for one bot does not stop another. Connect-all remains capped
-at three concurrent connection attempts.
+The existing explorer cache is the sole coordinated read-model cache. It now contains
+server, channel, role, member, and voice state. There is no competing member or voice
+cache.
 
-The Discord adapter subscribes once in its constructor and explicitly unsubscribes
-every handler during asynchronous disposal. `BotConnectionManager` also pairs its
-client status/explorer subscriptions with removal. Discord.Net owns gateway reconnect
-behavior; the application does not add a competing reconnect loop.
+Each immutable `BotExplorerSnapshot` is scoped by bot profile ID. Every server contains
+its own `MemberCollectionReadModel`; members can never cross a bot or server boundary.
+Adapter updates carry a monotonically increasing sequence. The cache rejects a sequence
+less than or equal to the last accepted sequence.
 
-## Explorer cache lifecycle
+Disconnect or profile removal clears the bot runtime and every explorer entity.
+Losing a server removes that server only. Failures in one server or runtime do not
+affect another bot.
 
-The bot runtime is the cache owner.
+## Member cache and completeness
 
-1. `Ready` translates the socket guild cache into immutable `ServerReadModel` and
-   `ChannelReadModel` values and emits a reset.
-2. `BotExplorerCache` copies that reset into an immutable snapshot identified by bot
-   profile ID and version.
-3. Gateway updates carry a monotonically increasing adapter sequence. The cache ignores
-   an older sequence, preventing stale async refresh results from overwriting a newer
-   event.
-4. Explicit Refresh performs the same translation off the UI thread. Cancellation
-   restores the previous cache state.
-5. A disconnect or profile removal clears the runtime snapshot. Reconnect/Ready
-   repopulates it from current socket state.
-6. Runtime removal disposes the client, handlers, semaphore, and cache ownership
-   together.
+Member data is memory-only and keyed by Discord user ID inside one bot/server snapshot.
+Externally visible values are immutable arrays.
 
-Snapshots contain no Discord.Net object and use immutable arrays. The cache exposes
-only snapshots and controlled `ExplorerCacheChanged` events.
+Completeness is explicit:
 
-## Gateway event flow
+- `Limited`: privileged access is locally disabled; only legitimately visible users
+  are represented.
+- `Loading`: Discord member pages are still being retrieved.
+- `Partial`: some results are present but the cache cannot claim completeness.
+- `Complete`: the paginated operation completed.
+- `Cancelled`, `Failed`, and `Unavailable`: terminal or absent states with safe UI
+  behavior.
 
-The adapter handles:
+`DiscordBotClient.LoadMembersAsync` consumes Discord.Net's asynchronous guild-member
+pages with a linked cancellation token. Each page is translated, de-duplicated, and
+published in UI-sized batches. Discord.Net serializes/rate-limits REST work. One
+semaphore prevents duplicate parallel loads for the same server.
 
-- `Ready`, `Connected`, and `Disconnected` (including the reconnect transition);
-- `GuildAvailable`, `GuildUnavailable`, `JoinedGuild`, `LeftGuild`, and `GuildUpdated`;
-- `ChannelCreated`, `ChannelUpdated`, and `ChannelDestroyed`;
-- `RoleCreated`, `RoleUpdated`, and `RoleDeleted`;
-- `UserVoiceStateUpdated` for connected voice/stage counts.
+The cache caps members at 100,000 per server. Exceeding the cap produces `Partial` and
+a safe explanation. Loading batches defer expensive role-member recounts until the
+terminal snapshot. Live batches recalculate only the affected server.
 
-Guild joins/updates, channel events, and role events rebuild only the affected server
-read model. Left-guild removes only that server. Role and overwrite changes produce a
-new server/cache version, invalidating affected permission results. Voice-state events
-are debounced per server for 250 ms before translation.
+Member joins, updates, role/nickname/timeout/boost changes, leaves, and download
+completion are incremental. Rapid events are collected per guild for 100 ms. A
+completed collection remains complete after a supported live add/update/remove.
 
-WPF receives cache events on arbitrary gateway threads, posts them to `UiDispatcher`,
-and batches collection refreshes for 100 ms. All `ObservableCollection` mutations occur
-on the UI dispatcher.
+Role updates refresh cached member highest-role labels and positions. Snapshot version
+changes and explicit invalidation prevent stale permission calculations.
 
-## Permission resolution
+Members are never persisted to SQLite.
 
-`PermissionResolutionService` is a reusable, Discord.Net-free service. It combines the
-`@everyone` role, the selected bot's roles, and channel overwrites using Discord
-precedence. Administrator produces an explicit `AllowedThroughAdministrator` status.
-Text/voice permissions return `NotApplicable` for unrelated channel types.
+## Privileged intent selection
 
-The calculation cache key includes bot ID, server ID, channel ID, and explorer snapshot
-version. Server/channel events create new versions, and explorer ViewModels explicitly
-invalidate the affected bot/server cache entries.
+`BotProfile.EnableFullMemberAccess` is a persisted, per-profile Boolean. Schema version
+2 adds `EnableFullMemberAccess INTEGER NOT NULL DEFAULT 0` through an idempotent,
+backward-compatible migration.
 
-`PermissionSynchronization.AreSynchronized` compares normalized overwrite tuples:
-target ID, target type, raw allow value, and raw deny value. It detects missing,
-additional, or changed overwrites, ignores ordering, returns `null` when there is no
-parent category, and treats two empty overwrite collections as synchronized.
+New and migrated profiles default to false.
 
-Permission-source labels are limited to cases the resolver can prove: Administrator,
-server role, `@everyone` overwrite, role overwrite, bot-member overwrite, and
-category-inherited variants.
+`DiscordBotClientFactory` receives the setting when constructing one runtime:
 
-## Selection and stale-data protection
+- false: `Guilds | GuildVoiceStates`;
+- true: `Guilds | GuildVoiceStates | GuildMembers`.
 
-`MainWindowViewModel` owns the toolbar bot/server context so selection survives page
-navigation. Changing the bot clears the server and channel selection. The server
-options collection is refreshed under a selection guard so WPF's two-way ComboBox
-binding cannot temporarily clear the Channels page while items are replaced.
+Changing the setting requires WPF warning confirmation. `BotProfileService` disconnects
+only the affected runtime, persists the option, writes a secret-free audit entry, and
+reconnects that bot if it was previously active.
 
-Server refresh captures a selection generation and discards completion work after a
-bot change. Channel deletion and server removal resolve against the latest immutable
-snapshot and clear missing selections. Toolbar options are populated only for the
-selected connected bot.
+A gateway `WebSocketClosedException` with close code 4014 becomes an actionable
+`PrivilegedIntentException` and faulted snapshot. The client marks the stop as manual,
+clears explorer data, completes the pending ready task with the safe exception, and
+does not add a reconnect loop. The user may correct the Portal configuration or disable
+the local option.
 
-## Gateway intents
+Developer Portal authorization, local intent selection, guild permissions, and role
+hierarchy are separate concepts throughout the UI and documentation.
 
-The configured intents are deliberately non-privileged:
+## Gateway subscriptions and disposal
 
-- `Guilds` is required for server discovery and guild/channel/role/overwrite events.
-- `GuildVoiceStates` is required for accurate connected-user counts in voice/stage
-  channel metadata.
+One adapter instance subscribes once to:
 
-`AlwaysDownloadUsers` is false and message caching is disabled. `GuildMembers`,
-`GuildPresences`, and `MessageContent` are not enabled. A complete member directory,
-presence data, and message content are therefore unavailable by design.
+- ready, connected, disconnected, latency, and safe log events;
+- guild available/unavailable/join/leave/update;
+- channel create/update/destroy;
+- role create/update/delete;
+- user join/leave, guild-member update, and member-download completion;
+- user voice-state update.
 
-## UI and performance
+Every subscription has a matching removal in `DisposeAsync`. Lifetime cancellation is
+signaled before stopping the socket. Member loads link to lifetime cancellation.
+Current debounce tokens self-cancel and dispose. The application does not compete with
+Discord.Net's normal reconnect behavior.
 
-Server lists and the channel tree use recycling virtualization. Search is debounced for
-250 ms; channel filtering keeps parent categories for matching children. Views and
-ViewModels are singleton navigation pages rather than being reconstructed on every
-event. Optional metadata is represented with nullable fields so unavailable values are
-not confused with zero.
+Member-loading errors publish a page-level `Failed` state and do not break unrelated
+servers or the bot connection. Selection changes cancel work and stale generations
+discard completion callbacks.
 
-Server icon `BitmapImage` instances are cached by URL. Download/URI failure returns an
-empty icon without escalating to the fatal dialog. Permission results are cached by
-snapshot version. No gateway event performs a database write.
+## Roles and hierarchy preflight
 
-The existing semantic theme brushes and reusable input/button/list styles remain the
-only view color source. Both explorer pages include loading, empty, disconnected,
-faulted, Retry, keyboard-focus, tooltip, trimming, scrolling, and narrow-window states.
+Roles are translated without member intent and include:
 
-## Errors and secrets
+- ID/name/position and `@everyone`;
+- raw and modeled permission bits plus the complete Discord permission-name list;
+- primary color, icon/Unicode emoji, hoist, mentionable, managed, bot-managed, and safe
+  tag metadata;
+- exact, partial, or unavailable member counts.
 
-Recoverable explorer failures become cache/page fault states with safe messages. The
-protected global exception handler remains reserved for fatal application faults and
-retains its non-recursive dialog guard.
+`ExplorerSearch.OrderRoles` places highest roles first and `@everyone` last.
 
-Logs use profile/server identifiers and exception type names. They do not record bot
-tokens, protected-token contents, authorization headers, raw gateway payloads, private
-messages, or Discord write bodies.
+`RoleHierarchySafetyService` is a pure, read-only Application service. It returns:
 
-## Data and secrets
+- Allowed, Denied, or Unknown;
+- stable reason code;
+- safe explanation;
+- required permission;
+- bot and target role positions;
+- data completeness.
 
-SQLite is opened in WAL mode and initialized through an idempotent, version-recorded
-schema. Repositories open short-lived pooled connections and use parameterized SQL.
+It checks Manage Roles or the relevant moderation/nickname permission, server ownership,
+managed roles, `@everyone`, equal/above hierarchy, permissions the bot does not
+possess, target member ownership/hierarchy, and incomplete member roles. Phase 4 must
+call this service before any future write preview or execution.
 
-Bot tokens are authenticated before persistence, protected with Windows DPAPI using
-`CurrentUser` scope and application entropy, then stored only as encrypted blobs.
-Temporary UTF-8 buffers are zeroed. The UI uses a fixed mask. Phase 2 does not change
-credential behavior.
+## Permission simulator
 
-## Read-only boundary and growth
+`PermissionResolutionService` now supports selected-bot, member, and role subjects. Its
+cache key includes bot ID, server ID, channel ID, snapshot version, subject kind, and
+subject ID.
 
-Phase 2 contains no create, edit, delete, move, message, moderation, role-assignment, or
-voice-connection Discord operations. Phase 3 should introduce application commands and
-preview models for rate-limit-aware, cancellable writes without moving Discord.Net
-types across the adapter boundary.
+Member precedence:
+
+1. base `@everyone`;
+2. aggregated assigned roles;
+3. Administrator;
+4. channel/category `@everyone` overwrite;
+5. aggregated role overwrites;
+6. member-specific overwrite.
+
+Role subjects use `@everyone` plus the selected role and its channel overwrite.
+Incomplete member-role data produces `Unknown`; it never yields a confident source.
+
+Comparison aligns modeled permissions and produces:
+
+- both allowed;
+- first only;
+- second only;
+- both denied;
+- unknown;
+- not applicable.
+
+General, text, voice, and moderation results include text labels and icons so color is
+not the sole indicator.
+
+## Voice-state flow
+
+`GuildVoiceStates` is always enabled. Initial channel translation includes immutable
+visible `VoiceStateReadModel` values. A voice event translates only the affected user
+and destination state, then stores the latest change per guild/user for 250 ms.
+
+The cache removes that user from previous accessible voice/stage channels, inserts the
+latest state into the destination, updates occupancy, and updates/removes the limited
+member projection. It does not rebuild the server or unrelated members.
+
+The Voice view is observational only. No `ConnectAsync` on a voice channel, audio
+client, voice server request, or transmission code exists.
+
+## Diagnostics
+
+`IBotExplorerService.GetDiagnostics` joins safe connection state with immutable cache
+metadata:
+
+- latency and ready/disconnect/reconnect timestamps;
+- cached server/channel/role/member counts;
+- aggregate member completeness;
+- last sequence and explorer refresh;
+- pending refresh and cache age;
+- local GuildMembers choice and operational status;
+- voice event count/time;
+- recent safe gateway error summary.
+
+The Dashboard renders this as compact cards, not a raw log console. Discord gateway log
+events record only source, severity, and exception type. Raw Discord messages/payloads
+are not forwarded to Serilog.
+
+## WPF state and performance
+
+`MainWindowViewModel` owns global bot/server selection and propagates it to all explorer
+ViewModels. Bot changes clear server context. The toolbar selection guard prevents WPF
+collection replacement from transiently clearing a restored server.
+
+Members uses ID-based incremental collection synchronization, debounced filtering, a
+collection view, selected-item removal handling, recycling virtualization, and command
+cancellation. Other new views preserve selection by Discord ID and clear it when the
+entity disappears.
+
+All new views use existing semantic brushes/styles. They provide focusable controls,
+tooltips, automation names, trimming, wrapping, scrolling, loading/empty/limited/
+partial/error states, and retry controls. No view embeds raw foreground/background
+colors.
+
+## SQLite, auditing, and privacy
+
+SQLite schema 2 stores only the local Boolean intent selection in addition to existing
+profile metadata and the DPAPI-protected credential. It does not store member
+directories, voice state, role membership, presence, messages, or raw gateway data.
+
+Intent changes write safe audit descriptions using profile IDs/names and Boolean state.
+Tokens, protected-token bytes, fingerprints, authorization headers, message content,
+raw payloads, and unnecessary personal information are excluded from diagnostics and
+logs.
+
+DPAPI remains `CurrentUser` with application entropy. Token buffers retain the existing
+protection/zeroing behavior and masked UI.
+
+## Read-only boundary
+
+Phase 3 contains no Discord create, edit, delete, move, role assignment, moderation,
+nickname, message, direct-message, bulk, voice-connect, or audio operation. REST usage
+is limited to authentication/read validation and member retrieval.
+
+Phase 4 should introduce a separate previewable command engine with cancellation,
+bounded concurrency, rate-limit awareness, confirmation, correlated audit entries, and
+mandatory hierarchy/permission preflight. It must not turn read-model cache updates
+into implicit writes.

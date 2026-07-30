@@ -78,6 +78,7 @@ public sealed class ChannelItemViewModel(
             PermissionStatus.Allowed => "Allowed",
             PermissionStatus.AllowedThroughAdministrator => "Allowed (Administrator)",
             PermissionStatus.NotApplicable => "Not applicable",
+            PermissionStatus.Unknown => "Unknown",
             _ => "Denied"
         };
     }
