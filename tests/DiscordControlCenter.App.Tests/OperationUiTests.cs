@@ -113,6 +113,32 @@ public sealed class OperationUiTests
     }
 
     [Fact]
+    public void ReconciliationStepOptionNeverUsesRawOperationStepObjectText()
+    {
+        var plan = UiOperationTestData.Plan();
+        var step = new OperationStepResult(
+            plan.Steps[0].StepId,
+            2,
+            "Delete channel \"phase4a-validation-beta\"",
+            false,
+            false,
+            null,
+            DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow,
+            1,
+            null,
+            false,
+            false);
+
+        var option = new ReconciliationStepOption(step);
+
+        Assert.Equal("Step 2 — Delete channel \"phase4a-validation-beta\"", option.DisplayText);
+        Assert.Equal(option.DisplayText, option.ToString());
+        Assert.DoesNotContain("OperationStepResult", option.DisplayText, StringComparison.Ordinal);
+        Assert.DoesNotContain("{", option.DisplayText, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void OperationCenterAppliesProgressAndCancellationState()
     {
         var scheduler = new UiScheduler();

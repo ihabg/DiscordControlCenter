@@ -15,6 +15,7 @@
                     <TextBlock Text="Structural backups" Style="{StaticResource SectionHeadingStyle}" />
                     <TextBlock Text="Local metadata only; browsing and cleanup never mutate Discord."
                                Style="{StaticResource MutedTextStyle}" Margin="0,3,0,12" />
+                    <TextBlock Text="Search backups" Style="{StaticResource FormLabelStyle}" Margin="0,0,0,5" />
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
@@ -26,7 +27,7 @@
                         <Button Grid.Column="1" Content="Search" Command="{Binding RefreshCommand}"
                                 Margin="8,0,0,0" />
                     </Grid>
-                    <Expander Header="Filters and sorting" Margin="0,8,0,0">
+                    <Expander Header="Filters and sorting" Margin="0,10,0,0">
                         <Grid Margin="0,8,0,0">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -38,30 +39,15 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
-                            <TextBox Text="{Binding BotFilter, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="Optional bot profile GUID"
-                                     automation:AutomationProperties.Name="Backup bot filter" />
-                            <TextBox Grid.Column="2"
-                                     Text="{Binding ServerFilter, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="Optional Discord server ID"
-                                     automation:AutomationProperties.Name="Backup server filter" />
-                            <TextBox Grid.Row="1"
-                                     Text="{Binding CreatedFromFilter, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="Created from date"
-                                     Margin="0,7,0,0"
-                                     automation:AutomationProperties.Name="Backup created from filter" />
-                            <TextBox Grid.Row="1" Grid.Column="2"
-                                     Text="{Binding CreatedToFilter, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="Created to date"
-                                     Margin="0,7,0,0"
-                                     automation:AutomationProperties.Name="Backup created to filter" />
-                            <ComboBox Grid.Row="2"
+                            <StackPanel><TextBlock Text="Bot profile ID" Style="{StaticResource ToolbarLabelStyle}" /><TextBox Text="{Binding BotFilter, UpdateSourceTrigger=PropertyChanged}" Tag="Optional profile ID" ToolTip="Optional bot profile GUID" automation:AutomationProperties.Name="Backup bot filter" /></StackPanel>
+                            <StackPanel Grid.Column="2"><TextBlock Text="Server ID" Style="{StaticResource ToolbarLabelStyle}" /><TextBox Text="{Binding ServerFilter, UpdateSourceTrigger=PropertyChanged}" Tag="Optional server ID" ToolTip="Optional Discord server ID" automation:AutomationProperties.Name="Backup server filter" /></StackPanel>
+                            <StackPanel Grid.Row="1" Margin="0,8,0,0"><TextBlock Text="From date" Style="{StaticResource ToolbarLabelStyle}" /><DatePicker SelectedDate="{Binding CreatedFromDate}" ToolTip="Created from date" automation:AutomationProperties.Name="Backup created from filter" /></StackPanel>
+                            <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,8,0,0"><TextBlock Text="To date" Style="{StaticResource ToolbarLabelStyle}" /><DatePicker SelectedDate="{Binding CreatedToDate}" ToolTip="Created to date" automation:AutomationProperties.Name="Backup created to filter" /></StackPanel>
+                            <StackPanel Grid.Row="2" Margin="0,8,0,0"><TextBlock Text="Source operation" Style="{StaticResource ToolbarLabelStyle}" /><ComboBox
                                       ItemsSource="{Binding SourceOperationOptions}"
                                       SelectedItem="{Binding SourceOperationFilter}"
-                                      Margin="0,7,0,0"
-                                      automation:AutomationProperties.Name="Backup source operation filter" />
+                                      automation:AutomationProperties.Name="Backup source operation filter"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Converter={StaticResource FriendlyDisplayConverter}}" /></DataTemplate></ComboBox.ItemTemplate></ComboBox></StackPanel>
                             <StackPanel Grid.Row="2" Grid.Column="2"
-                                        Orientation="Horizontal"
                                         Margin="0,7,0,0">
                                 <ComboBox ItemsSource="{Binding CompatibilityOptions}"
                                           SelectedItem="{Binding CompatibilityFilter}"
@@ -75,7 +61,7 @@
                             </StackPanel>
                         </Grid>
                     </Expander>
-                    <StackPanel Orientation="Horizontal" Margin="0,10,0,10">
+                    <WrapPanel Margin="0,10,0,10">
                         <Button Content="Previous" Command="{Binding PreviousPageCommand}" />
                         <TextBlock Text="{Binding PageText}" Style="{StaticResource SecondaryTextStyle}"
                                    Margin="12,7" />
@@ -84,12 +70,18 @@
                                 Margin="12,0,0,0" Style="{StaticResource SecondaryButtonStyle}" />
                         <Button Content="Export JSON" Command="{Binding ExportCommand}"
                                 Margin="6,0,0,0" Style="{StaticResource SecondaryButtonStyle}" />
-                    </StackPanel>
+                    </WrapPanel>
                 </StackPanel>
                 <ListBox ItemsSource="{Binding Backups}" SelectedItem="{Binding SelectedBackup}"
+                         Background="{StaticResource SurfaceBrush}"
+                         BorderThickness="0"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                          VirtualizingPanel.IsVirtualizing="True"
                          VirtualizingPanel.VirtualizationMode="Recycling"
                          automation:AutomationProperties.Name="Paged structural backups">
+                    <ListBox.ItemContainerStyle>
+                        <StaticResource ResourceKey="DataRowContainerStyle" />
+                    </ListBox.ItemContainerStyle>
                     <ListBox.ItemTemplate>
                         <DataTemplate>
                             <StackPanel Margin="8">
@@ -116,6 +108,12 @@
                                                 Converter={StaticResource BooleanToVisibilityConverter}}" />
             </DockPanel>
         </Border>
+        <GridSplitter Grid.Column="1"
+                      Width="12"
+                      HorizontalAlignment="Stretch"
+                      Background="Transparent"
+                      ShowsPreview="True"
+                      ToolTip="Resize backup list and details" />
         <Border Grid.Column="2" Style="{StaticResource PanelSurfaceStyle}">
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel>
@@ -152,7 +150,7 @@
                         <StackPanel Margin="0,0,0,10">
                             <TextBlock Text="SOURCE / SCHEMA" Style="{StaticResource DetailLabelStyle}" />
                             <TextBlock Style="{StaticResource DetailValueStyle}">
-                                <Run Text="{Binding Detail.Catalog.SourceOperationType, Mode=OneWay}" />
+                                    <Run Text="{Binding Detail.Catalog.SourceOperationType, Mode=OneWay, Converter={StaticResource FriendlyDisplayConverter}}" />
                                 <Run Text=" / v" />
                                 <Run Text="{Binding Detail.Catalog.SchemaVersion, Mode=OneWay}" />
                             </TextBlock>
@@ -279,7 +277,7 @@
                                     <StackPanel>
                                         <TextBlock Text="{Binding Name}" Style="{StaticResource BodyTextStyle}" />
                                         <TextBlock Style="{StaticResource MutedTextStyle}">
-                                            <Run Text="{Binding Kind, Mode=OneWay}" />
+                                            <Run Text="{Binding Kind, Mode=OneWay, Converter={StaticResource FriendlyDisplayConverter}}" />
                                             <Run Text=" • Position " />
                                             <Run Text="{Binding Position, Mode=OneWay}" />
                                             <Run Text=" • Parent " />

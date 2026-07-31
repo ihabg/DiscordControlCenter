@@ -9,7 +9,8 @@
         MinHeight="560"
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResizeWithGrip"
-        ShowInTaskbar="False">
+        ShowInTaskbar="False"
+        Style="{StaticResource DialogWindowStyle}">
     <Grid Margin="24">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />

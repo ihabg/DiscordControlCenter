@@ -21,14 +21,18 @@
                     <TextBlock Text="Persisted plans, progress, and reconciled outcomes"
                                Style="{StaticResource MutedTextStyle}"
                                Margin="0,3,0,0" />
-                    <DockPanel Margin="0,10,0,0">
+                    <TextBlock Text="Search operations" Style="{StaticResource FormLabelStyle}" Margin="0,10,0,5" />
+                    <DockPanel>
                         <Button DockPanel.Dock="Right" Content="Search"
                                 Command="{Binding SearchCommand}" Margin="8,0,0,0" />
                         <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
                                  automation:AutomationProperties.Name="Search operation history"
                                  ToolTip="Title, correlation ID, operation ID, server, or target" />
                     </DockPanel>
-                    <Expander Header="Filters and sorting" Margin="0,8,0,0">
+                    <Expander Margin="0,10,0,0">
+                        <Expander.Header>
+                            <StackPanel Orientation="Horizontal"><TextBlock Text="Filters and sorting" /><TextBlock Text="  ·  " /><TextBlock Text="{Binding ActiveFilterSummary}" Foreground="{StaticResource TextMutedBrush}" /></StackPanel>
+                        </Expander.Header>
                         <Grid Margin="0,8,0,0">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -41,44 +45,34 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
-                            <TextBox Text="{Binding BotFilter, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="Optional bot profile GUID"
-                                     automation:AutomationProperties.Name="History bot filter" />
-                            <TextBox Grid.Column="2"
-                                     Text="{Binding ServerFilter, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="Optional Discord server ID"
-                                     automation:AutomationProperties.Name="History server filter" />
-                            <TextBox Grid.Row="1"
-                                     Text="{Binding CreatedFromFilter, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="Created from date"
-                                     Margin="0,6,0,0" />
-                            <TextBox Grid.Row="1" Grid.Column="2"
-                                     Text="{Binding CreatedToFilter, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="Created to date"
-                                     Margin="0,6,0,0" />
-                            <ComboBox Grid.Row="2"
+                            <StackPanel><TextBlock Text="Bot profile ID" Style="{StaticResource ToolbarLabelStyle}" /><TextBox Text="{Binding BotFilter, UpdateSourceTrigger=PropertyChanged}" Tag="Optional profile ID" ToolTip="Optional bot profile GUID" automation:AutomationProperties.Name="History bot filter" /></StackPanel>
+                            <StackPanel Grid.Column="2"><TextBlock Text="Server ID" Style="{StaticResource ToolbarLabelStyle}" /><TextBox Text="{Binding ServerFilter, UpdateSourceTrigger=PropertyChanged}" Tag="Optional server ID" ToolTip="Optional Discord server ID" automation:AutomationProperties.Name="History server filter" /></StackPanel>
+                            <StackPanel Grid.Row="1" Margin="0,8,0,0"><TextBlock Text="From date" Style="{StaticResource ToolbarLabelStyle}" /><DatePicker SelectedDate="{Binding CreatedFromDate}" ToolTip="Include operations created on or after this date" /></StackPanel>
+                            <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,8,0,0"><TextBlock Text="To date" Style="{StaticResource ToolbarLabelStyle}" /><DatePicker SelectedDate="{Binding CreatedToDate}" ToolTip="Include operations created on or before this date" /></StackPanel>
+                            <StackPanel Grid.Row="2" Margin="0,8,0,0"><TextBlock Text="Operation type" Style="{StaticResource ToolbarLabelStyle}" /><ComboBox
                                       ItemsSource="{Binding OperationTypeOptions}"
                                       SelectedItem="{Binding OperationTypeFilter}"
-                                      Margin="0,6,0,0"
-                                      automation:AutomationProperties.Name="History operation type filter" />
-                            <ComboBox Grid.Row="2" Grid.Column="2"
+                                      automation:AutomationProperties.Name="History operation type filter"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Converter={StaticResource FriendlyDisplayConverter}}" /></DataTemplate></ComboBox.ItemTemplate></ComboBox></StackPanel>
+                            <StackPanel Grid.Row="2" Grid.Column="2" Margin="0,8,0,0"><TextBlock Text="Result" Style="{StaticResource ToolbarLabelStyle}" /><ComboBox
                                       ItemsSource="{Binding StateOptions}"
                                       SelectedItem="{Binding StateFilter}"
-                                      Margin="0,6,0,0"
-                                      automation:AutomationProperties.Name="History state filter" />
-                            <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,6,0,0">
+                                      automation:AutomationProperties.Name="History state filter"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Converter={StaticResource FriendlyDisplayConverter}}" /></DataTemplate></ComboBox.ItemTemplate></ComboBox></StackPanel>
+                            <StackPanel Grid.Row="3" Margin="0,8,0,0">
+                                <TextBlock Text="Risk and backup status" Style="{StaticResource ToolbarLabelStyle}" />
+                                <StackPanel>
                                 <ComboBox ItemsSource="{Binding RiskOptions}"
                                           SelectedItem="{Binding RiskFilter}"
-                                          MinWidth="92"
-                                          automation:AutomationProperties.Name="History risk filter" />
+                                          MinWidth="105" automation:AutomationProperties.Name="History risk filter"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Converter={StaticResource FriendlyDisplayConverter}}" /></DataTemplate></ComboBox.ItemTemplate></ComboBox>
                                 <ComboBox ItemsSource="{Binding BooleanFilterOptions}"
                                           SelectedItem="{Binding BackupFilter}"
                                           ToolTip="Created backup: All / Yes / No"
                                           MinWidth="65"
                                           Margin="5,0,0,0" />
+                                </StackPanel>
                             </StackPanel>
-                            <StackPanel Grid.Row="3" Grid.Column="2"
-                                        Orientation="Horizontal" Margin="0,6,0,0">
+                            <StackPanel Grid.Row="3" Grid.Column="2" Margin="0,8,0,0">
+                                <TextBlock Text="Reconciliation and sort" Style="{StaticResource ToolbarLabelStyle}" />
+                                <StackPanel>
                                 <ComboBox ItemsSource="{Binding BooleanFilterOptions}"
                                           SelectedItem="{Binding ManualFilter}"
                                           ToolTip="Needs manual reconciliation: All / Yes / No"
@@ -86,11 +80,12 @@
                                 <ComboBox ItemsSource="{Binding SortOptions}"
                                           SelectedItem="{Binding SelectedSort}"
                                           MinWidth="92"
-                                          Margin="5,0,0,0" />
+                                          Margin="5,0,0,0"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Converter={StaticResource FriendlyDisplayConverter}}" /></DataTemplate></ComboBox.ItemTemplate></ComboBox>
+                                </StackPanel>
                             </StackPanel>
                         </Grid>
                     </Expander>
-                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                    <WrapPanel Margin="0,8,0,0">
                         <Button Content="Previous" Command="{Binding PreviousHistoryPageCommand}"
                                 Style="{StaticResource SecondaryButtonStyle}" />
                         <TextBlock Text="{Binding HistoryPageText}" Style="{StaticResource MutedTextStyle}"
@@ -101,7 +96,9 @@
                                 Style="{StaticResource SecondaryButtonStyle}" Margin="12,0,0,0" />
                         <Button Content="CSV" Command="{Binding ExportCsvCommand}"
                                 Style="{StaticResource SecondaryButtonStyle}" Margin="6,0,0,0" />
-                    </StackPanel>
+                        <Button Content="Clear filters" Command="{Binding ClearFiltersCommand}"
+                                Style="{StaticResource SecondaryButtonStyle}" Margin="6,0,0,0" />
+                    </WrapPanel>
                     <TextBlock Text="{Binding HistoryError}"
                                Style="{StaticResource SecondaryTextStyle}"
                                TextWrapping="Wrap"
@@ -115,12 +112,12 @@
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                          automation:AutomationProperties.Name="Channel operation history">
                     <ListBox.ItemContainerStyle>
-                        <Style TargetType="ListBoxItem">
+                        <Style TargetType="ListBoxItem" BasedOn="{StaticResource DataRowContainerStyle}">
                             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                             <Setter Property="Padding" Value="0" />
                             <Setter Property="Margin" Value="8,2" />
                             <Setter Property="FocusVisualStyle"
-                                    Value="{StaticResource KeyboardFocusVisualStyle}" />
+                                    Value="{StaticResource RowKeyboardFocusVisualStyle}" />
                         </Style>
                     </ListBox.ItemContainerStyle>
                     <ListBox.ItemTemplate>
@@ -183,6 +180,13 @@
             </Grid>
         </Border>
 
+        <GridSplitter Grid.Column="1"
+                      Width="12"
+                      HorizontalAlignment="Stretch"
+                      Background="Transparent"
+                      ShowsPreview="True"
+                      ToolTip="Resize operation history and details" />
+
         <Border Grid.Column="2" Style="{StaticResource PanelSurfaceStyle}" Padding="0">
             <Grid>
                 <TextBlock Text="Select an operation to inspect its safe technical result."
@@ -235,32 +239,36 @@
                                    TextWrapping="Wrap"
                                    Margin="0,8,0,0" />
 
-                        <Expander Header="Manual reconciliation center"
+                        <Expander Header="Manual reconciliation"
                                   Margin="0,14,0,0">
                             <StackPanel Margin="0,8,0,0">
-                                <TextBlock Text="Recording a decision is local metadata only. It never mutates Discord. Corrective or compensating work must become a new previewed and confirmed plan."
+                                <TextBlock Text="This records how the application should classify an uncertain step. It does not make Discord changes; corrective work must be a new previewed operation."
                                            Style="{StaticResource SecondaryTextStyle}"
                                            TextWrapping="Wrap" />
-                                <ComboBox ItemsSource="{Binding SelectedOperation.StepResults}"
+                                <TextBlock Text="Operation step" Style="{StaticResource FormLabelStyle}" Margin="0,10,0,4" />
+                                <ComboBox ItemsSource="{Binding SelectedOperation.ReconciliationSteps}"
                                           SelectedItem="{Binding SelectedReconciliationStep}"
-                                          DisplayMemberPath="Description"
+                                          DisplayMemberPath="DisplayText"
                                           Margin="0,8,0,0"
                                           automation:AutomationProperties.Name="Ambiguous operation step" />
+                                <TextBlock Text="Resolution decision" Style="{StaticResource FormLabelStyle}" Margin="0,10,0,4" />
                                 <ComboBox ItemsSource="{Binding ReconciliationResolutions}"
                                           SelectedItem="{Binding SelectedResolution}"
-                                          Margin="0,7,0,0"
-                                          automation:AutomationProperties.Name="Manual reconciliation resolution" />
+                                          automation:AutomationProperties.Name="Manual reconciliation resolution"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Converter={StaticResource FriendlyDisplayConverter}}" /></DataTemplate></ComboBox.ItemTemplate></ComboBox>
+                                <TextBlock Text="Relevant resource IDs (optional)" Style="{StaticResource FormLabelStyle}" Margin="0,10,0,4" />
                                 <TextBox Text="{Binding RelevantResourceIds, UpdateSourceTrigger=PropertyChanged}"
                                          ToolTip="Optional comma-separated matching Discord resource IDs"
-                                         Margin="0,7,0,0"
                                          automation:AutomationProperties.Name="Relevant reconciliation resource IDs" />
+                                <TextBlock Text="Reason or explanation" Style="{StaticResource FormLabelStyle}" Margin="0,10,0,4" />
                                 <TextBox Text="{Binding ReconciliationExplanation, UpdateSourceTrigger=PropertyChanged}"
                                          ToolTip="Safe explanation (no tokens, raw payloads, or private content)"
                                          TextWrapping="Wrap"
                                          AcceptsReturn="True"
                                          MinHeight="54"
-                                         Margin="0,7,0,0"
+                                         Tag="Required; no private content"
                                          automation:AutomationProperties.Name="Manual reconciliation explanation" />
+                                <TextBlock Text="Explain the classification before recording. The decision remains local metadata only."
+                                           Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,5,0,0" />
                                 <Button Content="Record decision (no Discord action)"
                                         Command="{Binding RecordDecisionCommand}"
                                         Margin="0,8,0,0"
@@ -321,7 +329,7 @@
                             </TextBlock>
                         </StackPanel>
 
-                        <Expander Header="Safe technical result"
+                        <Expander Header="Technical details"
                                   Margin="0,12,0,12"
                                   IsExpanded="False"
                                   automation:AutomationProperties.Name="Safe technical operation result">
@@ -385,7 +393,7 @@
                                                 </TextBlock>
                                             </StackPanel>
                                             <TextBlock Grid.Column="1"
-                                                       Text="{Binding Succeeded}"
+                                                       Text="{Binding Succeeded, Converter={StaticResource FriendlyDisplayConverter}}"
                                                        Style="{StaticResource SecondaryTextStyle}"
                                                        Margin="12,0,0,0" />
                                         </Grid>
@@ -404,9 +412,9 @@
                                             Padding="10" Margin="0,0,0,6">
                                         <StackPanel>
                                             <TextBlock Style="{StaticResource BodyTextStyle}">
-                                                <Run Text="{Binding State, Mode=OneWay}" />
+                                                <Run Text="{Binding State, Mode=OneWay, Converter={StaticResource FriendlyDisplayConverter}}" />
                                                 <Run Text=" • " />
-                                                <Run Text="{Binding ReasonCode, Mode=OneWay}" />
+                                                <Run Text="{Binding ReasonCode, Mode=OneWay, Converter={StaticResource FriendlyDisplayConverter}}" />
                                             </TextBlock>
                                             <TextBlock Text="{Binding Timestamp}"
                                                        Style="{StaticResource MutedTextStyle}" />

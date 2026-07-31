@@ -117,7 +117,22 @@ public sealed class ChannelOperationDraftViewModel : ObservableObject
     public string NamesText
     {
         get => _namesText;
-        set => SetProperty(ref _namesText, value);
+        set
+        {
+            if (SetProperty(ref _namesText, value))
+            {
+                OnPropertyChanged(nameof(ParsedNameCountText));
+            }
+        }
+    }
+
+    public string ParsedNameCountText
+    {
+        get
+        {
+            var count = NamesText.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length;
+            return count == 0 ? "Add one channel name per line." : $"{count} channel{(count == 1 ? string.Empty : "s")} will be included in the preview.";
+        }
     }
 
     public ChannelKind SelectedChannelType
@@ -136,7 +151,37 @@ public sealed class ChannelOperationDraftViewModel : ObservableObject
     public ChannelOptionViewModel? SelectedCategory
     {
         get => _selectedCategory;
-        set => SetProperty(ref _selectedCategory, value);
+        set
+        {
+            if (SetProperty(ref _selectedCategory, value))
+            {
+                OnPropertyChanged(nameof(CanCopyParentOverwrites));
+            }
+        }
+    }
+
+    public bool CanCopyParentOverwrites => SelectedCategory?.Id is not null;
+
+    public bool IsCustomPosition
+    {
+        get => Position >= 0;
+        set
+        {
+            Position = value ? Math.Max(0, Position) : -1;
+            OnPropertyChanged(nameof(IsCustomPosition));
+            OnPropertyChanged(nameof(CustomPosition));
+        }
+    }
+
+    public int CustomPosition
+    {
+        get => Math.Max(0, Position);
+        set
+        {
+            Position = Math.Max(0, value);
+            OnPropertyChanged(nameof(IsCustomPosition));
+            OnPropertyChanged(nameof(CustomPosition));
+        }
     }
 
     public ChannelOptionViewModel? SelectedAnchor
@@ -220,7 +265,14 @@ public sealed class ChannelOperationDraftViewModel : ObservableObject
     public int Position
     {
         get => _position;
-        set => SetProperty(ref _position, value);
+        set
+        {
+            if (SetProperty(ref _position, value))
+            {
+                OnPropertyChanged(nameof(IsCustomPosition));
+                OnPropertyChanged(nameof(CustomPosition));
+            }
+        }
     }
 
     public int DefaultAutoArchiveMinutes

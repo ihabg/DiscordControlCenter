@@ -37,7 +37,7 @@ public sealed class OperationCenterViewModel : ObservableObject, IDisposable
     private OperationHistorySort _selectedSort = OperationHistorySort.Newest;
     private ManualReconciliationResolution _selectedResolution =
         ManualReconciliationResolution.KeepCurrentStateAndStop;
-    private OperationStepResult? _selectedReconciliationStep;
+    private ReconciliationStepOption? _selectedReconciliationStep;
     private string _reconciliationExplanation = string.Empty;
     private string _relevantResourceIds = string.Empty;
     private CancellationTokenSource? _detailCancellation;
@@ -71,6 +71,7 @@ public sealed class OperationCenterViewModel : ObservableObject, IDisposable
             PreviousHistoryPageAsync,
             () => HistoryPage > 1,
             HandleCommandError);
+        ClearFiltersCommand = new RelayCommand(_ => ClearFilters());
         ArchiveAmbiguityCommand = new AsyncRelayCommand(
             ArchiveAmbiguityAsync,
             () => SelectedOperation?.State == ChannelOperationState.ReconciliationRequired
@@ -80,6 +81,7 @@ public sealed class OperationCenterViewModel : ObservableObject, IDisposable
             RecordDecisionAsync,
             () => SelectedOperation?.State == ChannelOperationState.ReconciliationRequired
                   && SelectedReconciliationStep is not null
+                  && !string.IsNullOrWhiteSpace(ReconciliationExplanation)
                   && _recovery is not null,
             HandleCommandError);
         ExportJsonCommand = new AsyncRelayCommand(
@@ -113,6 +115,7 @@ public sealed class OperationCenterViewModel : ObservableObject, IDisposable
         Enum.GetValues<OperationHistorySort>();
     public IReadOnlyList<ManualReconciliationResolution> ReconciliationResolutions { get; } =
         Enum.GetValues<ManualReconciliationResolution>();
+    public RelayCommand ClearFiltersCommand { get; }
     public string SearchText
     {
         get => _searchText;
@@ -134,49 +137,63 @@ public sealed class OperationCenterViewModel : ObservableObject, IDisposable
     public string CreatedFromFilter
     {
         get => _createdFromFilter;
-        set => SetProperty(ref _createdFromFilter, value);
+        set
+        {
+            if (SetProperty(ref _createdFromFilter, value))
+            {
+                OnPropertyChanged(nameof(CreatedFromDate));
+                OnPropertyChanged(nameof(ActiveFilterSummary));
+            }
+        }
     }
 
     public string CreatedToFilter
     {
         get => _createdToFilter;
-        set => SetProperty(ref _createdToFilter, value);
+        set
+        {
+            if (SetProperty(ref _createdToFilter, value))
+            {
+                OnPropertyChanged(nameof(CreatedToDate));
+                OnPropertyChanged(nameof(ActiveFilterSummary));
+            }
+        }
     }
 
     public string OperationTypeFilter
     {
         get => _operationTypeFilter;
-        set => SetProperty(ref _operationTypeFilter, value);
+        set { if (SetProperty(ref _operationTypeFilter, value)) OnPropertyChanged(nameof(ActiveFilterSummary)); }
     }
 
     public string StateFilter
     {
         get => _stateFilter;
-        set => SetProperty(ref _stateFilter, value);
+        set { if (SetProperty(ref _stateFilter, value)) OnPropertyChanged(nameof(ActiveFilterSummary)); }
     }
 
     public string RiskFilter
     {
         get => _riskFilter;
-        set => SetProperty(ref _riskFilter, value);
+        set { if (SetProperty(ref _riskFilter, value)) OnPropertyChanged(nameof(ActiveFilterSummary)); }
     }
 
     public string BackupFilter
     {
         get => _backupFilter;
-        set => SetProperty(ref _backupFilter, value);
+        set { if (SetProperty(ref _backupFilter, value)) OnPropertyChanged(nameof(ActiveFilterSummary)); }
     }
 
     public string ManualFilter
     {
         get => _manualFilter;
-        set => SetProperty(ref _manualFilter, value);
+        set { if (SetProperty(ref _manualFilter, value)) OnPropertyChanged(nameof(ActiveFilterSummary)); }
     }
 
     public OperationHistorySort SelectedSort
     {
         get => _selectedSort;
-        set => SetProperty(ref _selectedSort, value);
+        set { if (SetProperty(ref _selectedSort, value)) OnPropertyChanged(nameof(ActiveFilterSummary)); }
     }
 
     public int HistoryPage
@@ -192,6 +209,32 @@ public sealed class OperationCenterViewModel : ObservableObject, IDisposable
     }
 
     public string HistoryPageText => $"Page {HistoryPage} of {Math.Max(HistoryPages, 1)}";
+    public string ActiveFilterSummary
+    {
+        get
+        {
+            var count = new[]
+            {
+                BotFilter, ServerFilter, CreatedFromFilter, CreatedToFilter
+            }.Count(value => !string.IsNullOrWhiteSpace(value));
+            count += OperationTypeFilter == "All" ? 0 : 1;
+            count += StateFilter == "All" ? 0 : 1;
+            count += RiskFilter == "All" ? 0 : 1;
+            count += BackupFilter == "All" ? 0 : 1;
+            count += ManualFilter == "All" ? 0 : 1;
+            return count == 0 ? "No filters applied" : $"{count} filter{(count == 1 ? string.Empty : "s")} applied";
+        }
+    }
+    public DateTime? CreatedFromDate
+    {
+        get => DateTime.TryParse(CreatedFromFilter, CultureInfo.CurrentCulture, out var value) ? value.Date : null;
+        set => CreatedFromFilter = value?.ToString("d", CultureInfo.CurrentCulture) ?? string.Empty;
+    }
+    public DateTime? CreatedToDate
+    {
+        get => DateTime.TryParse(CreatedToFilter, CultureInfo.CurrentCulture, out var value) ? value.Date : null;
+        set => CreatedToFilter = value?.ToString("d", CultureInfo.CurrentCulture) ?? string.Empty;
+    }
     public string? HistoryError
     {
         get => _historyError;
@@ -219,7 +262,7 @@ public sealed class OperationCenterViewModel : ObservableObject, IDisposable
         set => SetProperty(ref _selectedResolution, value);
     }
 
-    public OperationStepResult? SelectedReconciliationStep
+    public ReconciliationStepOption? SelectedReconciliationStep
     {
         get => _selectedReconciliationStep;
         set
@@ -234,7 +277,13 @@ public sealed class OperationCenterViewModel : ObservableObject, IDisposable
     public string ReconciliationExplanation
     {
         get => _reconciliationExplanation;
-        set => SetProperty(ref _reconciliationExplanation, value);
+        set
+        {
+            if (SetProperty(ref _reconciliationExplanation, value))
+            {
+                RecordDecisionCommand.NotifyCanExecuteChanged();
+            }
+        }
     }
 
     public string RelevantResourceIds
@@ -303,6 +352,21 @@ public sealed class OperationCenterViewModel : ObservableObject, IDisposable
         {
             CancelCommand.NotifyCanExecuteChanged();
         }
+    }
+
+    private void ClearFilters()
+    {
+        BotFilter = string.Empty;
+        ServerFilter = string.Empty;
+        CreatedFromFilter = string.Empty;
+        CreatedToFilter = string.Empty;
+        OperationTypeFilter = "All";
+        StateFilter = "All";
+        RiskFilter = "All";
+        BackupFilter = "All";
+        ManualFilter = "All";
+        SelectedSort = OperationHistorySort.Newest;
+        _ = NewSearchAsync(CancellationToken.None);
     }
 
     private void OnOperationChanged(object? sender, QueuedOperationSnapshot snapshot)
@@ -473,7 +537,7 @@ public sealed class OperationCenterViewModel : ObservableObject, IDisposable
                 0,
                 operation.OperationId,
                 operation.CorrelationId,
-                step.StepId,
+                step.Step.StepId,
                 SelectedResolution,
                 DateTimeOffset.UtcNow,
                 explanation,
@@ -565,8 +629,8 @@ public sealed class OperationCenterViewModel : ObservableObject, IDisposable
         _detailCancellation = new CancellationTokenSource();
         var token = _detailCancellation.Token;
         SelectedHistoryDetail = null;
-        var steps = operation?.StepResults;
-        SelectedReconciliationStep = steps?.FirstOrDefault(step => !step.Succeeded)
+        var steps = operation?.ReconciliationSteps;
+        SelectedReconciliationStep = steps?.FirstOrDefault(step => !step.Step.Succeeded)
             ?? (steps is { Count: > 0 } ? steps[0] : null);
         if (_history is null || operation is null)
         {
@@ -786,6 +850,8 @@ public sealed class OperationItemViewModel : ObservableObject
         ?? (_snapshot.Plan.IsDestructive ? "Pending required backup" : "Not required");
     public IReadOnlyList<OperationStepResult> StepResults =>
         _snapshot.Result?.StepResults ?? [];
+    public IReadOnlyList<ReconciliationStepOption> ReconciliationSteps =>
+        StepResults.Select(step => new ReconciliationStepOption(step)).ToArray();
     public bool CanCancel => _snapshot.State is ChannelOperationState.Pending
         or ChannelOperationState.Running
         or ChannelOperationState.Cancelling;
@@ -815,4 +881,11 @@ public sealed class OperationItemViewModel : ObservableObject
             value.Select(
                 (character, index) =>
                     index > 0 && char.IsUpper(character) ? $" {character}" : character.ToString()));
+}
+
+public sealed record ReconciliationStepOption(OperationStepResult Step)
+{
+    public string DisplayText => $"Step {Step.Order} — {Step.Description}";
+
+    public override string ToString() => DisplayText;
 }

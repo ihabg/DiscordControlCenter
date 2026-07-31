@@ -7,11 +7,46 @@
     <UserControl.Resources>
         <Style x:Key="ExplorerTreeItemStyle" TargetType="TreeViewItem">
             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
-            <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+            <Setter Property="Background" Value="Transparent" />
             <Setter Property="IsExpanded" Value="True" />
             <Setter Property="Padding" Value="0" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-            <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocusVisualStyle}" />
+            <Setter Property="FocusVisualStyle" Value="{StaticResource RowKeyboardFocusVisualStyle}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TreeViewItem">
+                        <Grid>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="18" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <ToggleButton x:Name="Expander"
+                                          IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                                          Background="Transparent"
+                                          BorderThickness="0"
+                                          Focusable="False"
+                                          Content="›"
+                                          Foreground="{StaticResource TextMutedBrush}" />
+                            <Border x:Name="ItemBorder"
+                                    Grid.Column="1"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="Transparent"
+                                    BorderThickness="1"
+                                    CornerRadius="6">
+                                <ContentPresenter ContentSource="Header"
+                                                  ContentTemplate="{TemplateBinding HeaderTemplate}"
+                                                  TextElement.Foreground="{TemplateBinding Foreground}" />
+                            </Border>
+                            <ItemsPresenter x:Name="ItemsHost" Grid.Row="1" Grid.Column="1" />
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="HasItems" Value="False"><Setter TargetName="Expander" Property="Visibility" Value="Hidden" /></Trigger>
+                            <Trigger Property="IsExpanded" Value="True"><Setter TargetName="Expander" Property="Content" Value="⌄" /></Trigger>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ItemBorder" Property="Background" Value="{StaticResource RowHoverBrush}" /></Trigger>
+                            <Trigger Property="IsSelected" Value="True"><Setter TargetName="ItemBorder" Property="Background" Value="{StaticResource RowSelectedBrush}" /><Setter TargetName="ItemBorder" Property="BorderBrush" Value="{StaticResource BorderBrush}" /></Trigger>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="ItemBorder" Property="BorderBrush" Value="{StaticResource RowFocusBrush}" /></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
         <Style x:Key="ChannelRowButtonStyle"
                TargetType="Button"
@@ -145,7 +180,7 @@
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="2*" MinWidth="330" />
-            <ColumnDefinition Width="12" />
+            <ColumnDefinition Width="8" />
             <ColumnDefinition Width="3*" MinWidth="390" />
         </Grid.ColumnDefinitions>
 
@@ -306,11 +341,14 @@
             </Grid>
         </Border>
 
+        <GridSplitter Grid.Row="1" Grid.Column="1" Width="8" HorizontalAlignment="Stretch"
+                      Background="Transparent" ShowsPreview="True" ToolTip="Resize channel list and details" />
+
         <Border Grid.Row="1" Grid.Column="2" Style="{StaticResource PanelSurfaceStyle}" Padding="0">
             <Grid>
                 <StackPanel HorizontalAlignment="Center"
                             VerticalAlignment="Center"
-                            MaxWidth="360">
+                            MaxWidth="360" Margin="24">
                     <StackPanel.Style>
                         <Style TargetType="StackPanel">
                             <Setter Property="Visibility" Value="Collapsed" />

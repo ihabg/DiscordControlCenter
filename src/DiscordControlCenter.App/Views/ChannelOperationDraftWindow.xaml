@@ -9,7 +9,8 @@
         MinHeight="560"
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResizeWithGrip"
-        ShowInTaskbar="False">
+        ShowInTaskbar="False"
+        Style="{StaticResource DialogWindowStyle}">
     <Grid Margin="24">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -23,7 +24,7 @@
                        Style="{StaticResource SecondaryTextStyle}"
                        Margin="0,5,0,0"
                        TextTrimming="CharacterEllipsis" />
-            <Border Style="{StaticResource WarningPanelStyle}" Margin="0,14,0,0">
+            <Border Style="{StaticResource InfoPanelStyle}" Margin="0,14,0,0">
                 <TextBlock Text="This window only configures a plan. No Discord request can run until the exact preview is confirmed and revalidated."
                            Style="{StaticResource SecondaryTextStyle}"
                            TextWrapping="Wrap" />
@@ -36,21 +37,29 @@
                       HorizontalScrollBarVisibility="Disabled">
             <StackPanel>
                 <StackPanel Visibility="{Binding IsCreate, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <TextBlock Text="One channel name per line" Style="{StaticResource FormLabelStyle}" />
+                    <TextBlock Text="Channel names" Style="{StaticResource FormLabelStyle}" />
                     <TextBox Text="{Binding NamesText, UpdateSourceTrigger=PropertyChanged}"
                              AcceptsReturn="True"
-                             MinHeight="100"
+                             MinHeight="72"
+                             MaxHeight="180"
+                             Tag="example: general&#x0a;team-chat&#x0a;voice-lounge"
                              VerticalScrollBarVisibility="Auto"
                              automation:AutomationProperties.Name="Channel names, one per line" />
+                    <TextBlock Text="Enter one channel name per line." Style="{StaticResource MutedTextStyle}" Margin="0,5,0,0" />
+                    <TextBlock Text="{Binding ParsedNameCountText}" Style="{StaticResource MutedTextStyle}" Margin="0,2,0,0" />
                     <TextBlock Text="Channel type" Style="{StaticResource FormLabelStyle}" Margin="0,14,0,7" />
                     <ComboBox ItemsSource="{Binding CreatableTypes}"
                               SelectedItem="{Binding SelectedChannelType}"
-                              automation:AutomationProperties.Name="Channel type" />
-                    <TextBlock Text="Initial position (-1 for automatic)"
+                              automation:AutomationProperties.Name="Channel type"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Converter={StaticResource FriendlyDisplayConverter}}" /></DataTemplate></ComboBox.ItemTemplate></ComboBox>
+                    <TextBlock Text="Position"
                                Style="{StaticResource FormLabelStyle}"
                                Margin="0,14,0,7" />
-                    <TextBox Text="{Binding Position, UpdateSourceTrigger=PropertyChanged}"
-                             automation:AutomationProperties.Name="Initial channel position" />
+                    <CheckBox Content="Use a custom position (Automatic by default)" IsChecked="{Binding IsCustomPosition}" />
+                    <TextBox Text="{Binding CustomPosition, UpdateSourceTrigger=PropertyChanged}"
+                             Tag="Position from the beginning"
+                             Margin="0,6,0,0"
+                             Visibility="{Binding IsCustomPosition, Converter={StaticResource BooleanToVisibilityConverter}}"
+                             automation:AutomationProperties.Name="Initial custom channel position" />
                 </StackPanel>
 
                 <StackPanel Visibility="{Binding IsEdit, Converter={StaticResource BooleanToVisibilityConverter}}">
@@ -63,7 +72,7 @@
                     <TextBlock Text="Rename mode" Style="{StaticResource FormLabelStyle}" />
                     <ComboBox ItemsSource="{Binding RenameModes}"
                               SelectedItem="{Binding RenameMode}"
-                              automation:AutomationProperties.Name="Bulk rename mode" />
+                              automation:AutomationProperties.Name="Bulk rename mode"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Converter={StaticResource FriendlyDisplayConverter}}" /></DataTemplate></ComboBox.ItemTemplate></ComboBox>
                     <TextBlock Text="Value, prefix, suffix, find text, or numbering prefix"
                                Style="{StaticResource FormLabelStyle}"
                                Margin="0,14,0,7" />
@@ -92,7 +101,7 @@
                     <TextBlock Text="Placement" Style="{StaticResource FormLabelStyle}" Margin="0,14,0,7" />
                     <ComboBox ItemsSource="{Binding MovePlacements}"
                               SelectedItem="{Binding MovePlacement}"
-                              automation:AutomationProperties.Name="Move placement" />
+                              automation:AutomationProperties.Name="Move placement"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Converter={StaticResource FriendlyDisplayConverter}}" /></DataTemplate></ComboBox.ItemTemplate></ComboBox>
                     <TextBlock Text="Before or after channel" Style="{StaticResource FormLabelStyle}" Margin="0,14,0,7" />
                     <ComboBox ItemsSource="{Binding Anchors}"
                               SelectedItem="{Binding SelectedAnchor}"
@@ -170,7 +179,11 @@
                               automation:AutomationProperties.Name="Creation parent category" />
                     <CheckBox Content="Copy parent permission overwrites"
                               IsChecked="{Binding CopyOverwrites}"
+                              IsEnabled="{Binding CanCopyParentOverwrites}"
                               Margin="0,10,0,0" />
+                    <TextBlock Text="Unavailable when the channel is uncategorized."
+                               Style="{StaticResource MutedTextStyle}" Margin="26,3,0,0"
+                               Visibility="{Binding CanCopyParentOverwrites, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
                 </StackPanel>
 
                 <StackPanel Margin="0,18,0,0"
@@ -181,8 +194,12 @@
                     <TextBlock Text="Position"
                                Style="{StaticResource FormLabelStyle}"
                                Margin="0,14,0,7" />
-                    <TextBox Text="{Binding Position, UpdateSourceTrigger=PropertyChanged}"
-                             automation:AutomationProperties.Name="Edited channel position" />
+                    <CheckBox Content="Use a custom position (Automatic by default)" IsChecked="{Binding IsCustomPosition}" />
+                    <TextBox Text="{Binding CustomPosition, UpdateSourceTrigger=PropertyChanged}"
+                             Tag="Position from the beginning"
+                             Margin="0,6,0,0"
+                             Visibility="{Binding IsCustomPosition, Converter={StaticResource BooleanToVisibilityConverter}}"
+                             automation:AutomationProperties.Name="Edited custom channel position" />
                 </StackPanel>
 
                 <StackPanel Margin="0,18,0,0"

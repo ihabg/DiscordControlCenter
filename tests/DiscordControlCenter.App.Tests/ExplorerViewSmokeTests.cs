@@ -16,6 +16,25 @@ namespace DiscordControlCenter.App.Tests;
 
 public sealed class ExplorerViewSmokeTests
 {
+    private static readonly string[] ComboBoxBrushKeys =
+    [
+        "ComboBoxPopupBackgroundBrush",
+        "ComboBoxPopupBorderBrush",
+        "ComboBoxItemForegroundBrush",
+        "ComboBoxItemHoverBackgroundBrush",
+        "ComboBoxItemHoverForegroundBrush",
+        "ComboBoxItemSelectedBackgroundBrush",
+        "ComboBoxItemSelectedForegroundBrush",
+        "ComboBoxItemDisabledForegroundBrush",
+        "InputForegroundBrush",
+        "InputPlaceholderForegroundBrush",
+        "InputDisabledForegroundBrush",
+        "TextSelectionBackgroundBrush",
+        "TextSelectionForegroundBrush",
+        "ExpanderExpandedBrush",
+        "RowFocusBrush"
+    ];
+
     [Fact]
     public void PopulatedExplorerTemplatesMeasureWithoutExceptions()
     {
@@ -27,6 +46,21 @@ public sealed class ExplorerViewSmokeTests
                 {
                     var application = new App();
                     application.InitializeComponent();
+                    Assert.NotNull(application.TryFindResource("DialogWindowStyle"));
+                    Assert.NotNull(application.TryFindResource("SearchBoxStyle"));
+                    foreach (var key in ComboBoxBrushKeys)
+                    {
+                        Assert.IsType<System.Windows.Media.SolidColorBrush>(application.TryFindResource(key));
+                    }
+
+                    var searchBox = new System.Windows.Controls.TextBox
+                    {
+                        Style = (System.Windows.Style)application.TryFindResource("SearchBoxStyle")!,
+                        Tag = "Search bots"
+                    };
+                    searchBox.ApplyTemplate();
+                    Assert.True(searchBox.MinHeight >= 34);
+                    Assert.Equal(34, searchBox.Height);
                     var server = CreateServer();
                     var permission = new PermissionResolution(
                         PermissionBits.ViewChannel,
@@ -177,7 +211,21 @@ public sealed class ExplorerViewSmokeTests
                     };
                     editDraft.Show();
                     editDraft.UpdateLayout();
+                    Assert.Equal(WindowStyle.None, editDraft.WindowStyle);
+                    Assert.Equal(40, System.Windows.Shell.WindowChrome.GetWindowChrome(editDraft)!.CaptionHeight);
                     editDraft.Close();
+
+                    var createDraft = new ChannelOperationDraftWindow(
+                        new ChannelOperationDraftViewModel(
+                            draftContext,
+                            ChannelOperationUiMode.Create,
+                            new ChannelOperationPlanner(draftExplorer)))
+                    {
+                        ShowInTaskbar = false
+                    };
+                    createDraft.Show();
+                    createDraft.UpdateLayout();
+                    createDraft.Close();
 
                     var limitedServer = CreateServer() with
                     {

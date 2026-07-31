@@ -2,13 +2,53 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Title="Discord Control Center"
         Width="1420"
         Height="860"
         MinWidth="1040"
         MinHeight="680"
-        WindowStartupLocation="CenterScreen">
+        WindowStyle="None"
+        ResizeMode="CanResize"
+        WindowStartupLocation="CenterScreen"
+        PreviewKeyDown="OnPreviewKeyDown"
+        StateChanged="OnWindowStateChanged">
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="40"
+                            CornerRadius="0"
+                            GlassFrameThickness="0"
+                            ResizeBorderThickness="6"
+                            UseAeroCaptionButtons="False" />
+    </shell:WindowChrome.WindowChrome>
     <Grid Background="{StaticResource AppBackgroundBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="40" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <Border Background="{StaticResource HeaderBackgroundBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,0,0,1">
+            <Grid Margin="12,0,0,0">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="46" /><ColumnDefinition Width="46" /><ColumnDefinition Width="46" /></Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" shell:WindowChrome.IsHitTestVisibleInChrome="False">
+                    <Border Width="22" Height="22" Background="{StaticResource AccentBrush}" CornerRadius="6" Margin="0,0,8,0">
+                        <TextBlock Text="DC" FontSize="9" FontWeight="Bold" Foreground="{StaticResource TextOnAccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <TextBlock Text="Discord Control Center" Style="{StaticResource SecondaryTextStyle}" VerticalAlignment="Center" />
+                </StackPanel>
+                <Button Grid.Column="1" Content="—" Click="OnMinimizeClick" Style="{StaticResource TitleBarButtonStyle}"
+                        ToolTip="Minimize" automation:AutomationProperties.Name="Minimize window"
+                        shell:WindowChrome.IsHitTestVisibleInChrome="True" />
+                <Button Grid.Column="2" Content="□" Click="OnMaximizeRestoreClick" Style="{StaticResource TitleBarButtonStyle}"
+                        x:Name="MaximizeRestoreButton"
+                        ToolTip="Maximize or restore" automation:AutomationProperties.Name="Maximize or restore window"
+                        shell:WindowChrome.IsHitTestVisibleInChrome="True" />
+                <Button Grid.Column="3" Content="×" Click="OnCloseClick" Style="{StaticResource TitleBarCloseButtonStyle}"
+                        ToolTip="Close" automation:AutomationProperties.Name="Close window"
+                        shell:WindowChrome.IsHitTestVisibleInChrome="True" />
+            </Grid>
+        </Border>
+    <Grid Grid.Row="1" Background="{StaticResource AppBackgroundBrush}">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="230" />
             <ColumnDefinition Width="*" />
@@ -93,11 +133,11 @@
                     BorderThickness="0,0,0,1">
                 <Grid Margin="24,9">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" MinWidth="105" />
-                        <ColumnDefinition Width="168" />
-                        <ColumnDefinition Width="188" />
-                        <ColumnDefinition Width="184" />
-                        <ColumnDefinition Width="158" />
+                        <ColumnDefinition Width="*" MinWidth="80" />
+                        <ColumnDefinition Width="1.15*" MinWidth="120" />
+                        <ColumnDefinition Width="1.3*" MinWidth="130" />
+                        <ColumnDefinition Width="1.3*" MinWidth="130" />
+                        <ColumnDefinition Width="*" MinWidth="90" />
                         <ColumnDefinition Width="44" />
                     </Grid.ColumnDefinitions>
                     <TextBlock Text="{Binding CurrentTitle}"
@@ -108,7 +148,9 @@
 
                     <StackPanel Grid.Column="1" Margin="7,0">
                         <TextBlock Text="SEARCH" Style="{StaticResource ToolbarLabelStyle}" />
-                        <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                        <TextBox x:Name="ToolbarSearchBox"
+                                 Style="{StaticResource SearchBoxStyle}"
+                                 Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
                                  Tag="Search bots"
                                  ToolTip="Search bot name, username, or ID"
                                  automation:AutomationProperties.Name="Search bots" />
@@ -222,5 +264,6 @@
                             Content="{Binding CurrentPage}"
                             Background="{StaticResource ContentBackgroundBrush}" />
         </Grid>
+    </Grid>
     </Grid>
 </Window>

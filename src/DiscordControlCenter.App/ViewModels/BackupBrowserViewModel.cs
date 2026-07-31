@@ -155,13 +155,37 @@ public sealed class BackupBrowserViewModel : ObservableObject, IDisposable
     public string CreatedFromFilter
     {
         get => _createdFromFilter;
-        set => SetProperty(ref _createdFromFilter, value);
+        set
+        {
+            if (SetProperty(ref _createdFromFilter, value))
+            {
+                OnPropertyChanged(nameof(CreatedFromDate));
+            }
+        }
     }
 
     public string CreatedToFilter
     {
         get => _createdToFilter;
-        set => SetProperty(ref _createdToFilter, value);
+        set
+        {
+            if (SetProperty(ref _createdToFilter, value))
+            {
+                OnPropertyChanged(nameof(CreatedToDate));
+            }
+        }
+    }
+
+    public DateTime? CreatedFromDate
+    {
+        get => DateTime.TryParse(CreatedFromFilter, CultureInfo.CurrentCulture, out var value) ? value.Date : null;
+        set => CreatedFromFilter = value?.ToString("d", CultureInfo.CurrentCulture) ?? string.Empty;
+    }
+
+    public DateTime? CreatedToDate
+    {
+        get => DateTime.TryParse(CreatedToFilter, CultureInfo.CurrentCulture, out var value) ? value.Date : null;
+        set => CreatedToFilter = value?.ToString("d", CultureInfo.CurrentCulture) ?? string.Empty;
     }
 
     public string SourceOperationFilter

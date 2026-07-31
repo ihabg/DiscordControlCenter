@@ -18,6 +18,18 @@
             <converters:PermissionStatusToBrushConverter x:Key="PermissionStatusToBrushConverter" />
             <converters:PermissionStatusToTextConverter x:Key="PermissionStatusToTextConverter" />
             <converters:RoleColorConverter x:Key="RoleColorConverter" />
+            <converters:FriendlyDisplayConverter x:Key="FriendlyDisplayConverter" />
+
+            <DataTemplate DataType="{x:Type vm:ChannelOptionViewModel}">
+                <TextBlock Text="{Binding Name}"
+                           TextTrimming="CharacterEllipsis"
+                           ToolTip="{Binding Name}" />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:RoleOptionViewModel}">
+                <TextBlock Text="{Binding Name}"
+                           TextTrimming="CharacterEllipsis"
+                           ToolTip="{Binding Name}" />
+            </DataTemplate>
 
             <DataTemplate DataType="{x:Type vm:DashboardViewModel}">
                 <views:DashboardView />

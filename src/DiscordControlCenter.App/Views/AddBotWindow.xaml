@@ -8,6 +8,7 @@
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
+        Style="{StaticResource DialogWindowStyle}"
         Background="{StaticResource AppBackgroundBrush}">
     <Border Margin="14" Style="{StaticResource DialogSurfaceStyle}">
         <Grid>
