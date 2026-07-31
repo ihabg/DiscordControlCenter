@@ -5,10 +5,12 @@
     <Project Path="src/DiscordControlCenter.Core/DiscordControlCenter.Core.csproj" />
     <Project Path="src/DiscordControlCenter.Discord/DiscordControlCenter.Discord.csproj" />
     <Project Path="src/DiscordControlCenter.Infrastructure/DiscordControlCenter.Infrastructure.csproj" />
+    <Project Path="src/DiscordControlCenter.UiHarness/DiscordControlCenter.UiHarness.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/DiscordControlCenter.App.Tests/DiscordControlCenter.App.Tests.csproj" />
     <Project Path="tests/DiscordControlCenter.Application.Tests/DiscordControlCenter.Application.Tests.csproj" />
     <Project Path="tests/DiscordControlCenter.Core.Tests/DiscordControlCenter.Core.Tests.csproj" />
+    <Project Path="tests/DiscordControlCenter.UiHarness.Tests/DiscordControlCenter.UiHarness.Tests.csproj" />
   </Folder>
 </Solution>

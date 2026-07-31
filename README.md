@@ -482,6 +482,32 @@ The delivery ledger stores IDs, operation state, attempts, timestamps, and safe 
 codes only. It deliberately excludes message bodies, embeds, DMs, template values,
 tokens, raw Discord payloads, and member directories.
 
+## Release startup and Manual Approvals UI harness
+
+The normal Release startup path builds the local host, constructs and explicitly assigns
+`MainWindow`, and shows it on the WPF dispatcher before background-only initialization
+(database schema, local recovery inspection, and local schedulers) completes. No startup
+step connects a bot. This prevents a silent headless process and keeps the app usable with
+an empty database or no saved bot profile. Safe milestone and fatal-startup diagnostics are
+written as structured JSON lines under `%LOCALAPPDATA%\DiscordControlCenter\logs`; they never
+include tokens, authorization values, message bodies, or raw Discord payloads.
+
+`DiscordControlCenter.UiHarness` is a separate Release-only, non-packable WPF executable for
+visual Manual Approvals inspection. Launch it with:
+
+```powershell
+dotnet run --project src/DiscordControlCenter.UiHarness -c Release
+```
+
+It displays a persistent **UI HARNESS — TEST DATA ONLY — DISCORD WRITES DISABLED** banner and
+uses deterministic, in-memory scenarios: plain and full-embed messages, near/over-limit
+content, broad mentions, disconnected and missing-permission states, legacy/unsupported/
+missing snapshots, saved target IDs, and long wrapping text. Its controls change only that
+in-memory state; it has no production database, token store, Discord gateway, REST client,
+or message writer registration. Close and reopen it to reset all data. Inspect normal and
+narrow layouts, the approval/skip/archive confirmations, visible keyboard focus, Escape
+cancellation, and the exact broad-mention confirmation text before sign-off.
+
 ## Phase 4B status and recommended next phase
 
 Phase 4B provides the backup/replacement, retention, history/export, startup recovery,

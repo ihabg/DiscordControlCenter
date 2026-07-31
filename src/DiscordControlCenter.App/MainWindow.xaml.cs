@@ -13,16 +13,11 @@ public partial class MainWindow : Window
         InitializeComponent();
         _viewModel = viewModel;
         DataContext = viewModel;
-        Loaded += OnLoaded;
         Closed += OnClosed;
     }
 
-    private async void OnLoaded(object sender, RoutedEventArgs e)
-    {
-        _ = sender;
-        Loaded -= OnLoaded;
-        await _viewModel.InitializeAsync(CancellationToken.None);
-    }
+    internal Task InitializeAsync(CancellationToken cancellationToken) =>
+        _viewModel.InitializeAsync(cancellationToken);
 
     private void OnClosed(object? sender, EventArgs e)
     {

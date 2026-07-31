@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <IsPackable>false</IsPackable>
+    <PublishSingleFile>false</PublishSingleFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\DiscordControlCenter.App\DiscordControlCenter.App.csproj" />
+    <ProjectReference Include="..\DiscordControlCenter.Application\DiscordControlCenter.Application.csproj" />
+    <ProjectReference Include="..\DiscordControlCenter.Core\DiscordControlCenter.Core.csproj" />
+  </ItemGroup>
+</Project>

@@ -566,3 +566,21 @@ from a recorded manual decision is a recommended later recovery enhancement.
 Member moderation, role mutation/assignment, messaging/DMs, auto-role behavior,
 webhook/emoji/sticker mutation, bot voice connection/audio, server deletion, and
 user-token/self-bot behavior remain outside the architecture.
+
+## WPF startup and UI-harness isolation
+
+`App.OnStartup` records safe milestones, creates the dependency-injection host, resolves the
+main window, assigns `Application.MainWindow`, and invokes `Show` before completing local
+startup work. Host/database/recovery/scheduler initialization then runs without blocking the
+WPF dispatcher; UI view-model loading is dispatched only after that local work succeeds.
+`Loaded`, `ContentRendered`, and native-handle milestones make a startup that created a
+window diagnosable. Fatal startup failures are logged safely and shown to the user instead of
+leaving a background process. Logs are JSONL files in the application local-data log folder.
+
+`DiscordControlCenter.UiHarness` references only the reusable App views/presentation models
+and constructs no production dependency-injection host. It owns deterministic scenario data
+in memory, provides test-only layout/state controls, and opens the same confirmation window
+used by Manual Approvals. Therefore it cannot resolve a production token protector or Discord
+writer, open the production SQLite database, initiate gateway/REST traffic, or persist a
+decision. It is a separate non-packable project and is not included in the production app's
+publish output.

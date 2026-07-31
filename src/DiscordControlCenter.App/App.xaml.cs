@@ -34,7 +34,7 @@ public partial class App : System.Windows.Application
     private int _handlingFatalUiException;
     private int _fatalShutdownRequested;
 
-    protected override async void OnStartup(StartupEventArgs e)
+    protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
         RegisterExceptionHandlers();
@@ -56,6 +56,8 @@ public partial class App : System.Windows.Application
 
         try
         {
+            StartupLog("Process started");
+            StartupLog("Command-line arguments parsed");
             _host = Host.CreateDefaultBuilder()
                 .UseSerilog(_bootstrapLogger, dispose: false)
                 .ConfigureServices(
@@ -139,26 +141,17 @@ public partial class App : System.Windows.Application
                     })
                 .Build();
 
-            await _host.StartAsync();
-            await _host.Services
-                .GetRequiredService<IDatabaseInitializer>()
-                .InitializeAsync(CancellationToken.None);
-            await _host.Services
-                .GetRequiredService<IBotConnectionManager>()
-                .InitializeAsync(CancellationToken.None);
-            await _host.Services
-                .GetRequiredService<IOperationRecoveryService>()
-                .InspectInterruptedAsync(CancellationToken.None);
-            await _host.Services
-                .GetRequiredService<IChannelOperationScheduler>()
-                .InitializeAsync(CancellationToken.None);
-            await _host.Services
-                .GetRequiredService<IScheduledMessageScheduler>()
-                .InitializeAsync(CancellationToken.None);
-
+            StartupLog("Application services created");
             var window = _host.Services.GetRequiredService<MainWindow>();
+            StartupLog("MainWindow constructed");
             MainWindow = window;
+            StartupLog("MainWindow assigned");
+            window.Loaded += OnMainWindowLoaded;
+            window.ContentRendered += OnMainWindowContentRendered;
+            window.SourceInitialized += OnMainWindowSourceInitialized;
             window.Show();
+            StartupLog("MainWindow.Show invoked");
+            _ = CompleteStartupAsync(window, CancellationToken.None);
         }
         catch (Exception exception)
         {
@@ -174,6 +167,7 @@ public partial class App : System.Windows.Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        StartupLog("Application shutdown requested");
         UnregisterExceptionHandlers();
         if (_host is IAsyncDisposable asyncDisposable)
         {
@@ -187,6 +181,94 @@ public partial class App : System.Windows.Application
         _bootstrapLogger?.Dispose();
         base.OnExit(e);
     }
+
+    private async Task CompleteStartupAsync(MainWindow window, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Run(
+                    async () =>
+                    {
+                        var host = _host ?? throw new InvalidOperationException("The application host was not created.");
+                        await host.StartAsync(cancellationToken).ConfigureAwait(false);
+                        StartupLog("Host started");
+                        await host.Services
+                            .GetRequiredService<IDatabaseInitializer>()
+                            .InitializeAsync(cancellationToken)
+                            .ConfigureAwait(false);
+                        await host.Services
+                            .GetRequiredService<IBotConnectionManager>()
+                            .InitializeAsync(cancellationToken)
+                            .ConfigureAwait(false);
+                        await host.Services
+                            .GetRequiredService<IOperationRecoveryService>()
+                            .InspectInterruptedAsync(cancellationToken)
+                            .ConfigureAwait(false);
+                        await host.Services
+                            .GetRequiredService<IChannelOperationScheduler>()
+                            .InitializeAsync(cancellationToken)
+                            .ConfigureAwait(false);
+                        await host.Services
+                            .GetRequiredService<IScheduledMessageScheduler>()
+                            .InitializeAsync(cancellationToken)
+                            .ConfigureAwait(false);
+                    },
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            await Dispatcher.InvokeAsync(
+                    () => window.InitializeAsync(cancellationToken),
+                    DispatcherPriority.Background,
+                    cancellationToken)
+                .Task
+                .Unwrap()
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Closing while non-mutating startup work is still completing is expected.
+        }
+        catch (Exception exception)
+        {
+            LogFatalWithoutMessage(exception, "Application startup failed");
+            await Dispatcher.InvokeAsync(
+                    () =>
+                    {
+                        MessageBox.Show(
+                            "Discord Control Center could not finish starting. Review the local structured log for details.",
+                            "Startup failed",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Error);
+                        Shutdown(1);
+                    })
+                .Task
+                .ConfigureAwait(false);
+        }
+    }
+
+    private void OnMainWindowLoaded(object sender, RoutedEventArgs e)
+    {
+        _ = sender;
+        _ = e;
+        StartupLog("MainWindow Loaded");
+    }
+
+    private void OnMainWindowContentRendered(object? sender, EventArgs e)
+    {
+        _ = sender;
+        _ = e;
+        StartupLog("MainWindow ContentRendered");
+    }
+
+    private void OnMainWindowSourceInitialized(object? sender, EventArgs e)
+    {
+        _ = sender;
+        _ = e;
+        StartupLog("Main window handle created");
+    }
+
+    private void StartupLog(string milestone) =>
+        _bootstrapLogger?.Information("Startup milestone {Milestone}", milestone);
 
     private void RegisterExceptionHandlers()
     {
