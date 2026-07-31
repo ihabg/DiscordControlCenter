@@ -468,7 +468,32 @@ destination IDs, safe state/failure metadata, and timestamps only; message conte
 template values are never stored. Scheduled delivery and join automation execution are
 not yet active: scheduled recurrence is calculation-only and automation remains
 draft/preflight-only until a later release provides an explicit enablement workflow and
-event subscriber.
+  event subscriber.
+
+### Manual-approval preflight and immutable usage
+
+The Manual Approvals read path is separate from delivery. `IScheduledApprovalPreflightService`
+receives only the reserved immutable occurrence snapshot and produces fourteen ordered,
+application-facing checks. Snapshot compatibility, message limits, embed limits, and
+mention-policy validity are evaluated without a bot connection. Bot profile, connection,
+server, channel, capability, and permission checks describe only current sendability.
+When a dependency cannot be resolved, dependent required checks are `Unavailable` or
+`Unknown`; they are never shown as allowed. Optional Embed Links, Attach Files, and Mention
+Everyone checks are always represented as `Not required` when the snapshot does not require
+them.
+
+WPF consumes safe check/usage records rather than Discord.Net objects, raw exceptions, or
+human-error parsing. Selection and refresh have independent generations so an old snapshot
+or old status refresh cannot enable a newer selection. Approval uses the current granular
+result as advisory UI state, refreshes it before confirmation, and the guarded executor
+still runs its authoritative aggregate preflight after atomic claim and immediately before
+the Discord adapter boundary.
+
+`MessageLimits` is the single source for message/embed maxima and the shared 90% near-limit
+threshold. It emits immutable per-component rows for body, title, description, author,
+footer, ordered field names/values, field count, and total embed characters. Near-limit
+warnings are non-blocking; over-limit rows block approval. These read models are transient
+and are not persisted with tokens, authorization data, raw payloads, or exception bodies.
 
 ## SQLite, auditing, retention, and privacy
 

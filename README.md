@@ -41,6 +41,23 @@ Application data is stored under `%LOCALAPPDATA%\DiscordControlCenter`. Tokens a
 protected for the current Windows user with DPAPI `CurrentUser`, are always masked in
 the UI, and are never written to logs.
 
+## Scheduled-message manual approvals
+
+Missed scheduled occurrences awaiting a decision retain an immutable, versioned delivery
+snapshot. The Manual Approvals panel shows that saved content separately from its current
+Discord sendability. Approve is enabled only after fourteen ordered checks pass: snapshot
+compatibility, plain-message and embed limits, mention-policy validity, saved bot profile,
+connection, server/channel availability and capability, and the relevant channel
+permissions. Embed Links, Attach Files, and Mention Everyone remain visible as **Not
+required** when the immutable occurrence does not need them.
+
+The approval panel uses the shared Discord limits for per-component message/embed usage;
+values at or above 90% are marked Near limit but do not block, while over-limit values do.
+Refreshing status is generation-safe, and the executor repeats its own authoritative
+preflight after an atomic approval claim immediately before any delivery. UI errors are
+safe summaries only; they never expose tokens, authorization values, raw Discord payloads,
+or REST exception bodies.
+
 ## Read-only explorers
 
 Choose a saved bot and server in the toolbar after connecting the bot explicitly from

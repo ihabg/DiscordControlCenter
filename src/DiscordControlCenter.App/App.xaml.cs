@@ -108,6 +108,7 @@ public partial class App : System.Windows.Application
                         services.AddSingleton<IMessagePlanBuilder, MessagePlanBuilder>();
                         services.AddSingleton<ITemplateRenderer, TemplateRenderer>();
                         services.AddSingleton<IMessagePreflightService, MessagePreflightService>();
+                        services.AddSingleton<IScheduledApprovalPreflightService, ScheduledApprovalPreflightService>();
                         services.AddSingleton<IDiscordMessageWriter>(
                             provider => provider.GetRequiredService<BotConnectionManager>());
                         services.AddSingleton<IMessageDeliveryExecutor, MessageDeliveryExecutor>();

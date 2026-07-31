@@ -33,7 +33,7 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
     private readonly IMessageDeliveryDialogService _deliveryDialog;
     private readonly IScheduledMessageRepository _scheduledMessages;
     private readonly IScheduledApprovalService _approvals;
-    private readonly IMessagePreflightService _messagePreflight;
+    private readonly IScheduledApprovalPreflightService _approvalPreflight;
     private readonly UiDispatcher _dispatcher;
     private Guid? _botProfileId;
     private ulong? _serverId;
@@ -53,9 +53,11 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
     private ScheduledApprovalListItem? _selectedApproval;
     private ScheduledMessageApproval? _approvalDetails;
     private bool _isApprovalBusy;
+    private bool _isApprovalDetailsLoading;
+    private bool _isApprovalPreflightLoading;
     private int _approvalSelectionVersion;
-    private string? _approvalPreflightSummary;
-    private bool _approvalPreflightAllowsSend;
+    private int _approvalPreflightVersion;
+    private ScheduledApprovalPreflightResult? _approvalPreflightResult;
     private readonly Array _destinationModes = Enum.GetValues<MessageDestinationKind>();
 
     public MessagesViewModel(
@@ -65,7 +67,7 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
         IMessageDeliveryDialogService deliveryDialog,
         IScheduledMessageRepository scheduledMessages,
         IScheduledApprovalService approvals,
-        IMessagePreflightService messagePreflight,
+        IScheduledApprovalPreflightService approvalPreflight,
         UiDispatcher dispatcher)
     {
         _explorer = explorer;
@@ -74,7 +76,7 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
         _deliveryDialog = deliveryDialog;
         _scheduledMessages = scheduledMessages;
         _approvals = approvals;
-        _messagePreflight = messagePreflight;
+        _approvalPreflight = approvalPreflight;
         _dispatcher = dispatcher;
         _explorer.CacheChanged += OnCacheChanged;
         GeneratePreviewCommand = new RelayCommand(_ => GeneratePreview());
@@ -82,10 +84,10 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
         RefreshTemplatesCommand = new AsyncRelayCommand(LoadTemplatesAsync, errorHandler: OnCommandError);
         SendCommand = new AsyncRelayCommand(SendAsync, () => Preview is not null, OnCommandError);
         RefreshApprovalsCommand = new AsyncRelayCommand(LoadApprovalsAsync, errorHandler: OnCommandError);
-        SkipApprovalCommand = new AsyncRelayCommand(SkipApprovalAsync, () => SelectedApproval?.State == MessageOperationState.PendingApproval, OnCommandError);
-        ArchiveApprovalCommand = new AsyncRelayCommand(ArchiveApprovalAsync, () => SelectedApproval?.State == MessageOperationState.PendingApproval, OnCommandError);
+        SkipApprovalCommand = new AsyncRelayCommand(SkipApprovalAsync, () => CanDecidePending, OnCommandError);
+        ArchiveApprovalCommand = new AsyncRelayCommand(ArchiveApprovalAsync, () => CanDecidePending, OnCommandError);
         ApproveApprovalCommand = new AsyncRelayCommand(ApproveApprovalAsync, () => CanApproveApproval, OnCommandError);
-        RefreshApprovalStatusCommand = new RelayCommand(_ => RefreshApprovalPreflight());
+        RefreshApprovalStatusCommand = new AsyncRelayCommand(RefreshApprovalStatusAsync, () => CanRefreshApprovalStatus, OnCommandError);
     }
 
     public ObservableCollection<MessageChannelOption> Channels { get; } = [];
@@ -94,7 +96,11 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
     public ObservableCollection<string> ValidationErrors { get; } = [];
     public ObservableCollection<string> PreviewWarnings { get; } = [];
     public ObservableCollection<ScheduledApprovalListItem> Approvals { get; } = [];
-    public ObservableCollection<string> ApprovalPreflightChecks { get; } = [];
+    public ObservableCollection<ScheduledApprovalPreflightCheckItem> ApprovalPreflightChecks { get; } = [];
+    public ObservableCollection<ContentUsageItem> ApprovalPlainMessageUsage { get; } = [];
+    public ObservableCollection<ContentUsageItem> ApprovalEmbedUsage { get; } = [];
+    public ObservableCollection<MentionPolicyUsageItem> ApprovalMentionPolicy { get; } = [];
+    public ObservableCollection<string> ApprovalUsageWarnings { get; } = [];
     public Array DestinationModes => _destinationModes;
 
     public MessageDestinationKind DestinationMode
@@ -117,12 +123,16 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
     public ScheduledApprovalListItem? SelectedApproval { get => _selectedApproval; set { if (SetProperty(ref _selectedApproval, value)) { _ = LoadApprovalDetailsAsync(); NotifyApprovalCommands(); } } }
     public ScheduledMessageApproval? ApprovalDetails { get => _approvalDetails; private set => SetProperty(ref _approvalDetails, value); }
     public bool IsApprovalBusy { get => _isApprovalBusy; private set { if (SetProperty(ref _isApprovalBusy, value)) NotifyApprovalCommands(); } }
-    public string? ApprovalPreflightSummary { get => _approvalPreflightSummary; private set => SetProperty(ref _approvalPreflightSummary, value); }
-    public bool CanApproveApproval => !IsApprovalBusy && _approvalPreflightAllowsSend && ApprovalDetails?.Occurrence.State == MessageOperationState.PendingApproval && ApprovalDetails.Compatibility is SnapshotCompatibility.Supported or SnapshotCompatibility.SupportedLegacy;
-    public string ApprovalDisabledReason => ApprovalDetails is null ? "Select a pending occurrence." : IsApprovalBusy ? "Another decision is currently running." : ApprovalDetails.Compatibility is not (SnapshotCompatibility.Supported or SnapshotCompatibility.SupportedLegacy) ? "This immutable snapshot is not supported by this application version." : !_approvalPreflightAllowsSend ? "Refresh current Discord status and resolve any blocking checks before sending." : string.Empty;
+    public bool IsApprovalDetailsLoading { get => _isApprovalDetailsLoading; private set { if (SetProperty(ref _isApprovalDetailsLoading, value)) NotifyApprovalCommands(); } }
+    public bool IsApprovalPreflightLoading { get => _isApprovalPreflightLoading; private set { if (SetProperty(ref _isApprovalPreflightLoading, value)) NotifyApprovalCommands(); } }
+    public ScheduledApprovalPreflightResult? ApprovalPreflightResult { get => _approvalPreflightResult; private set { if (SetProperty(ref _approvalPreflightResult, value)) NotifyApprovalCommands(); } }
+    public string ApprovalPreflightSummary => IsApprovalPreflightLoading ? "Refreshing current Discord status…" : ApprovalPreflightResult?.Summary ?? "Current Discord status has not been checked.";
+    public string ApprovalCheckedAt => ApprovalPreflightResult is null ? "Not checked" : $"Last checked {ApprovalPreflightResult.CheckedAt.LocalDateTime:g}";
+    public bool CanApproveApproval => !IsApprovalBusy && !IsApprovalDetailsLoading && !IsApprovalPreflightLoading && ApprovalDetails?.Occurrence.State == MessageOperationState.PendingApproval && ApprovalPreflightResult?.CanSend == true;
+    public bool CanDecidePending => !IsApprovalBusy && !IsApprovalDetailsLoading && ApprovalDetails?.Occurrence.State == MessageOperationState.PendingApproval;
+    public bool CanRefreshApprovalStatus => !IsApprovalBusy && !IsApprovalDetailsLoading && !IsApprovalPreflightLoading && ApprovalDetails is not null;
+    public string ApprovalDisabledReason => GetApprovalDisabledReason();
     public string AllowedMentionSummary => ApprovalDetails?.ImmutableContent is not { } content ? "No immutable mention policy is available." : content.AllowedMentions.AllowEveryoneAndHere ? "Everyone and here mentions are allowed; stronger confirmation is required." : content.AllowedMentions.AllowRoleMentions ? "Role mentions are allowed for the saved target IDs." : content.AllowedMentions.AllowedUserIds.Length > 0 ? "Only the saved user mention IDs are allowed." : "Everyone, here, role, and user mentions are blocked.";
-    public string ApprovalMessageUsage => ApprovalDetails?.ImmutableContent is { } content ? $"{content.Body.Length:N0} / {MessageLimits.MaximumMessageCharacters:N0} characters" : string.Empty;
-    public string ApprovalEmbedUsage => ApprovalDetails?.ImmutableContent is { Embed: { } embed } ? $"{embed.Fields.Length:N0} fields; {MessageLimits.Validate(new MessageContent(string.Empty, embed, AllowedMentionPolicy.None)).Count:N0} validation warning(s)" : "No embed";
     public string CharacterUsage => $"{MessageBody.Length:N0} / {MessageLimits.MaximumMessageCharacters:N0}";
     public bool HasContext => _botProfileId is not null && _serverId is not null && _connectionState == BotConnectionState.Connected;
     public bool CanSaveTemplate => !string.IsNullOrWhiteSpace(TemplateName) && (MessageBody.Length > 0 || IncludeEmbed);
@@ -138,7 +148,7 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand SkipApprovalCommand { get; }
     public AsyncRelayCommand ArchiveApprovalCommand { get; }
     public AsyncRelayCommand ApproveApprovalCommand { get; }
-    public RelayCommand RefreshApprovalStatusCommand { get; }
+    public AsyncRelayCommand RefreshApprovalStatusCommand { get; }
 
     public void SetContext(Guid? botProfileId, BotConnectionState connectionState, ulong? serverId)
     {
@@ -177,7 +187,7 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
         RefreshTemplatesCommand.Dispose();
         SendCommand.Dispose();
         RefreshApprovalsCommand.Dispose(); SkipApprovalCommand.Dispose(); ArchiveApprovalCommand.Dispose();
-        ApproveApprovalCommand.Dispose();
+        ApproveApprovalCommand.Dispose(); RefreshApprovalStatusCommand.Dispose();
     }
 
     private void GeneratePreview()
@@ -247,37 +257,193 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
 
     private async Task SkipApprovalAsync(CancellationToken cancellationToken)
     {
-        if (SelectedApproval is null) return;
-        if (ApprovalDetails is null || !ConfirmDecision("Skip occurrence", ApprovalDetails)) return;
-        IsApprovalBusy = true; try { if (await _approvals.SkipAsync(SelectedApproval.OccurrenceId, cancellationToken).ConfigureAwait(false)) { StatusMessage = "The missed occurrence was skipped and was not sent."; await LoadApprovalsAsync(cancellationToken).ConfigureAwait(false); } } finally { IsApprovalBusy = false; }
+        var approval = ApprovalDetails;
+        if (approval is null || !CanDecidePending || !ConfirmDecision("Skip occurrence", approval)) return;
+        IsApprovalBusy = true;
+        try
+        {
+            if (await _approvals.SkipAsync(approval.Occurrence.Id, cancellationToken).ConfigureAwait(false))
+            {
+                StatusMessage = "The missed occurrence was skipped and was not sent.";
+                await LoadApprovalsAsync(cancellationToken).ConfigureAwait(false);
+            }
+            else StatusMessage = "This occurrence was already processed.";
+        }
+        finally { IsApprovalBusy = false; }
     }
 
     private async Task ArchiveApprovalAsync(CancellationToken cancellationToken)
     {
-        if (SelectedApproval is null) return;
-        if (ApprovalDetails is null || !ConfirmDecision("Archive occurrence", ApprovalDetails)) return;
-        IsApprovalBusy = true; try { if (await _approvals.ArchiveAsync(SelectedApproval.OccurrenceId, cancellationToken).ConfigureAwait(false)) { StatusMessage = "The missed occurrence was archived and was not sent."; await LoadApprovalsAsync(cancellationToken).ConfigureAwait(false); } } finally { IsApprovalBusy = false; }
+        var approval = ApprovalDetails;
+        if (approval is null || !CanDecidePending || !ConfirmDecision("Archive occurrence", approval)) return;
+        IsApprovalBusy = true;
+        try
+        {
+            if (await _approvals.ArchiveAsync(approval.Occurrence.Id, cancellationToken).ConfigureAwait(false))
+            {
+                StatusMessage = "The missed occurrence was archived and was not sent.";
+                await LoadApprovalsAsync(cancellationToken).ConfigureAwait(false);
+            }
+            else StatusMessage = "This occurrence was already processed.";
+        }
+        finally { IsApprovalBusy = false; }
     }
 
     private async Task ApproveApprovalAsync(CancellationToken cancellationToken)
     {
-        if (ApprovalDetails is null || !ConfirmDecision("Approve and send", ApprovalDetails)) return;
-        IsApprovalBusy = true; try { var result = await _approvals.ApproveAsync(ApprovalDetails.Occurrence.Id, cancellationToken).ConfigureAwait(false); StatusMessage = result?.State == MessageOperationState.Delivered ? "The approved missed message was delivered." : "This occurrence was already processed or could not be sent safely."; await LoadApprovalsAsync(cancellationToken).ConfigureAwait(false); } finally { IsApprovalBusy = false; }
+        var approval = ApprovalDetails;
+        if (approval is null || !CanApproveApproval) return;
+        var occurrenceId = approval.Occurrence.Id;
+        if (!await RefreshApprovalPreflightAsync(approval, cancellationToken).ConfigureAwait(true)
+            || !ReferenceEquals(approval, ApprovalDetails)
+            || approval.Occurrence.State != MessageOperationState.PendingApproval
+            || ApprovalPreflightResult?.CanSend != true)
+        {
+            StatusMessage = "Current Discord status blocks approval. Resolve the shown check before sending.";
+            return;
+        }
+
+        if (!ConfirmDecision("Approve and send", approval)) return;
+        IsApprovalBusy = true;
+        try
+        {
+            var result = await _approvals.ApproveAsync(occurrenceId, cancellationToken).ConfigureAwait(false);
+            StatusMessage = result?.State switch
+            {
+                MessageOperationState.Delivered => "The approved missed message was delivered.",
+                MessageOperationState.Uncertain => "The delivery result is uncertain. This occurrence will not be sent again automatically. Manual review is required.",
+                MessageOperationState.Failed => result.Failure?.SafeMessage ?? "The approved message could not be sent safely.",
+                _ => "This occurrence was already processed or could not be sent safely."
+            };
+            await LoadApprovalsAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally { IsApprovalBusy = false; }
     }
 
     private async Task LoadApprovalDetailsAsync()
     {
-        var selection = SelectedApproval; var version = Interlocked.Increment(ref _approvalSelectionVersion); ApprovalDetails = null; _approvalPreflightAllowsSend = false; OnPropertyChanged(nameof(ApprovalDisabledReason));
+        var selection = SelectedApproval;
+        var version = Interlocked.Increment(ref _approvalSelectionVersion);
+        Interlocked.Increment(ref _approvalPreflightVersion);
+        ApprovalDetails = null;
+        ApprovalPreflightResult = null;
+        ClearApprovalPresentation();
+        IsApprovalDetailsLoading = selection is not null;
+        NotifyApprovalProperties();
         if (selection is null) return;
-        try { var details = await _scheduledMessages.GetApprovalAsync(selection.OccurrenceId, CancellationToken.None).ConfigureAwait(false); if (version == Volatile.Read(ref _approvalSelectionVersion)) _dispatcher.Post(() => { ApprovalDetails = details; OnPropertyChanged(nameof(AllowedMentionSummary)); OnPropertyChanged(nameof(ApprovalMessageUsage)); OnPropertyChanged(nameof(ApprovalEmbedUsage)); RefreshApprovalPreflight(); }); } catch { if (version == Volatile.Read(ref _approvalSelectionVersion)) _dispatcher.Post(() => StatusMessage = "Approval details could not be loaded."); }
+        try
+        {
+            var details = await _scheduledMessages.GetApprovalAsync(selection.OccurrenceId, CancellationToken.None).ConfigureAwait(false);
+            if (_disposed || version != Volatile.Read(ref _approvalSelectionVersion)) return;
+            _dispatcher.Post(() =>
+            {
+                if (_disposed || version != Volatile.Read(ref _approvalSelectionVersion)) return;
+                IsApprovalDetailsLoading = false;
+                if (details is null)
+                {
+                    StatusMessage = "This occurrence is no longer available for a decision.";
+                    NotifyApprovalProperties();
+                    return;
+                }
+
+                ApprovalDetails = details;
+                PopulateImmutablePresentation(details);
+                NotifyApprovalProperties();
+                _ = RefreshApprovalPreflightAsync(details, CancellationToken.None);
+            });
+        }
+        catch
+        {
+            if (!_disposed && version == Volatile.Read(ref _approvalSelectionVersion)) _dispatcher.Post(() =>
+            {
+                IsApprovalDetailsLoading = false;
+                StatusMessage = "Approval details could not be loaded.";
+                NotifyApprovalProperties();
+            });
+        }
     }
 
-    private void NotifyApprovalCommands() { SkipApprovalCommand.NotifyCanExecuteChanged(); ArchiveApprovalCommand.NotifyCanExecuteChanged(); ApproveApprovalCommand.NotifyCanExecuteChanged(); }
+    private Task RefreshApprovalStatusAsync(CancellationToken cancellationToken) =>
+        ApprovalDetails is { } approval ? RefreshApprovalPreflightAsync(approval, cancellationToken) : Task.CompletedTask;
+
+    private async Task<bool> RefreshApprovalPreflightAsync(ScheduledMessageApproval approval, CancellationToken cancellationToken)
+    {
+        if (_disposed || !ReferenceEquals(approval, ApprovalDetails)) return false;
+        var selectionVersion = Volatile.Read(ref _approvalSelectionVersion);
+        var refreshVersion = Interlocked.Increment(ref _approvalPreflightVersion);
+        IsApprovalPreflightLoading = true;
+        NotifyApprovalProperties();
+        try
+        {
+            var result = await _approvalPreflight.EvaluateAsync(approval, cancellationToken).ConfigureAwait(false);
+            if (_disposed || selectionVersion != Volatile.Read(ref _approvalSelectionVersion) || refreshVersion != Volatile.Read(ref _approvalPreflightVersion) || !ReferenceEquals(approval, ApprovalDetails)) return false;
+            _dispatcher.Post(() =>
+            {
+                if (_disposed || selectionVersion != Volatile.Read(ref _approvalSelectionVersion) || refreshVersion != Volatile.Read(ref _approvalPreflightVersion) || !ReferenceEquals(approval, ApprovalDetails)) return;
+                ApprovalPreflightResult = result;
+                ApprovalPreflightChecks.Clear();
+                foreach (var check in result.Checks) ApprovalPreflightChecks.Add(new ScheduledApprovalPreflightCheckItem(check));
+                IsApprovalPreflightLoading = false;
+                NotifyApprovalProperties();
+            });
+            return result.CanSend;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            if (!_disposed && refreshVersion == Volatile.Read(ref _approvalPreflightVersion)) _dispatcher.Post(() => { IsApprovalPreflightLoading = false; StatusMessage = "Current Discord status refresh was cancelled."; NotifyApprovalProperties(); });
+            return false;
+        }
+        catch
+        {
+            if (!_disposed && refreshVersion == Volatile.Read(ref _approvalPreflightVersion)) _dispatcher.Post(() => { IsApprovalPreflightLoading = false; StatusMessage = "Current Discord status could not be checked."; NotifyApprovalProperties(); });
+            return false;
+        }
+    }
+
+    private void PopulateImmutablePresentation(ScheduledMessageApproval approval)
+    {
+        ClearApprovalPresentation();
+        var usage = _approvalPreflight.GetUsage(approval.ImmutableContent);
+        foreach (var row in usage.PlainMessageRows) ApprovalPlainMessageUsage.Add(new ContentUsageItem(row));
+        foreach (var row in usage.EmbedRows) ApprovalEmbedUsage.Add(new ContentUsageItem(row));
+        foreach (var row in _approvalPreflight.GetMentionPolicyUsage(approval.ImmutableContent)) ApprovalMentionPolicy.Add(new MentionPolicyUsageItem(row));
+        foreach (var warning in usage.ValidationWarnings) ApprovalUsageWarnings.Add(warning);
+    }
+
+    private void ClearApprovalPresentation() { ApprovalPreflightChecks.Clear(); ApprovalPlainMessageUsage.Clear(); ApprovalEmbedUsage.Clear(); ApprovalMentionPolicy.Clear(); ApprovalUsageWarnings.Clear(); }
+
+    private void NotifyApprovalCommands()
+    {
+        SkipApprovalCommand.NotifyCanExecuteChanged(); ArchiveApprovalCommand.NotifyCanExecuteChanged(); ApproveApprovalCommand.NotifyCanExecuteChanged(); RefreshApprovalStatusCommand.NotifyCanExecuteChanged();
+        NotifyApprovalProperties();
+    }
+
+    private void NotifyApprovalProperties()
+    {
+        OnPropertyChanged(nameof(CanApproveApproval)); OnPropertyChanged(nameof(CanDecidePending)); OnPropertyChanged(nameof(CanRefreshApprovalStatus)); OnPropertyChanged(nameof(ApprovalDisabledReason)); OnPropertyChanged(nameof(ApprovalPreflightSummary)); OnPropertyChanged(nameof(ApprovalCheckedAt)); OnPropertyChanged(nameof(AllowedMentionSummary));
+    }
+
+    private string GetApprovalDisabledReason()
+    {
+        if (SelectedApproval is null) return "Select a pending occurrence.";
+        if (IsApprovalDetailsLoading) return "Loading immutable occurrence details…";
+        if (IsApprovalBusy) return "Another decision is currently running.";
+        if (ApprovalDetails?.Occurrence.State != MessageOperationState.PendingApproval) return "This occurrence is no longer pending approval.";
+        if (ApprovalPreflightResult is null) return IsApprovalPreflightLoading ? "Refreshing current Discord status…" : "Refresh current Discord status before sending.";
+        var priority = new[] { ScheduledApprovalPreflightCheckId.SnapshotCompatibility, ScheduledApprovalPreflightCheckId.PlainMessageLimits, ScheduledApprovalPreflightCheckId.EmbedLimits, ScheduledApprovalPreflightCheckId.AllowedMentionPolicy, ScheduledApprovalPreflightCheckId.BotProfileExists, ScheduledApprovalPreflightCheckId.BotConnected, ScheduledApprovalPreflightCheckId.ServerAccessible, ScheduledApprovalPreflightCheckId.ChannelExists, ScheduledApprovalPreflightCheckId.ChannelSupportsMessageSending, ScheduledApprovalPreflightCheckId.ViewChannel, ScheduledApprovalPreflightCheckId.SendMessages, ScheduledApprovalPreflightCheckId.EmbedLinks, ScheduledApprovalPreflightCheckId.AttachFiles, ScheduledApprovalPreflightCheckId.MentionEveryone };
+        foreach (var id in priority)
+        {
+            var check = ApprovalPreflightResult.Checks.FirstOrDefault(item => item.Id == id && item.BlocksApproval);
+            if (check is not null) return check.Remediation ?? check.Explanation;
+        }
+        return string.Empty;
+    }
 
     private static bool ConfirmDecision(string action, ScheduledMessageApproval approval) =>
         new ScheduledApprovalDecisionWindow(new ScheduledApprovalDecisionViewModel(action, approval)) { Owner = System.Windows.Application.Current.MainWindow }.ShowDialog() == true;
 
-    private void RefreshApprovalPreflight()
+#if false
+    private void RefreshApprovalPreflightLegacy()
     {
         ApprovalPreflightChecks.Clear();
         if (ApprovalDetails?.ImmutableContent is null) { ApprovalPreflightSummary = "Current status cannot be checked until immutable details are available."; return; }
@@ -293,6 +459,7 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(ApprovalDisabledReason));
     }
 
+#endif
     private bool TryBuildDraft(out MessageDraft draft)
     {
         draft = default!;

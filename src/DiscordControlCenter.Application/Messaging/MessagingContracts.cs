@@ -17,6 +17,78 @@ public sealed record MessagePreflightResult(
     IReadOnlyList<MessagePreflightIssue> Issues,
     DateTimeOffset CheckedAt);
 
+public enum ScheduledApprovalPreflightCheckId
+{
+    SnapshotCompatibility,
+    PlainMessageLimits,
+    EmbedLimits,
+    AllowedMentionPolicy,
+    BotProfileExists,
+    BotConnected,
+    ServerAccessible,
+    ChannelExists,
+    ChannelSupportsMessageSending,
+    ViewChannel,
+    SendMessages,
+    EmbedLinks,
+    AttachFiles,
+    MentionEveryone
+}
+
+public enum ScheduledApprovalPreflightState
+{
+    Allowed,
+    Blocked,
+    Unavailable,
+    Unknown,
+    NotRequired
+}
+
+public sealed record ScheduledApprovalPreflightCheck(
+    ScheduledApprovalPreflightCheckId Id,
+    string Label,
+    ScheduledApprovalPreflightState State,
+    bool IsRequired,
+    bool BlocksApproval,
+    string Explanation,
+    string? Remediation,
+    string? TechnicalCategory);
+
+public sealed record ScheduledApprovalPreflightResult(
+    bool CanSend,
+    ScheduledApprovalPreflightState OverallState,
+    string Summary,
+    DateTimeOffset CheckedAt,
+    IReadOnlyList<ScheduledApprovalPreflightCheck> Checks,
+    IReadOnlyList<string> Warnings,
+    IReadOnlyList<string> BlockingReasons);
+
+public enum ContentUsageState
+{
+    NotApplicable,
+    WithinLimit,
+    NearLimit,
+    OverLimit
+}
+
+public sealed record ContentUsageRow(
+    string Id,
+    string Label,
+    int Used,
+    int Maximum,
+    int Remaining,
+    ContentUsageState State,
+    bool BlocksApproval,
+    string Summary,
+    string? Warning);
+
+public sealed record ContentUsageResult(
+    IReadOnlyList<ContentUsageRow> PlainMessageRows,
+    IReadOnlyList<ContentUsageRow> EmbedRows,
+    IReadOnlyList<string> ValidationWarnings);
+
+public sealed record MentionPolicyUsageRow(string Id, string Label, bool IsAllowed, string Summary);
+
 public sealed record MessagePreview(
     string BotDisplayName,
     MessageOperationPlan Plan,
@@ -37,6 +109,20 @@ public interface IMessagePlanBuilder
 public interface IMessagePreflightService
 {
     MessagePreflightResult Validate(MessageOperationPlan plan);
+}
+
+/// <summary>
+/// Produces a safe, immutable-occurrence-specific approval read model. This is advisory UI
+/// state; <see cref="IMessagePreflightService"/> remains the delivery executor's authority.
+/// </summary>
+public interface IScheduledApprovalPreflightService
+{
+    Task<ScheduledApprovalPreflightResult> EvaluateAsync(
+        ScheduledMessageApproval approval,
+        CancellationToken cancellationToken);
+
+    ContentUsageResult GetUsage(MessageContent? content);
+    IReadOnlyList<MentionPolicyUsageRow> GetMentionPolicyUsage(MessageContent? content);
 }
 
 public interface IDiscordMessageWriter

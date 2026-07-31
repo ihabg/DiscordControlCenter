@@ -32,7 +32,7 @@ public sealed class OperationPersistenceTests
         Assert.Contains("OperationStateTransitions", tables);
         Assert.Contains("ManualReconciliationDecisions", tables);
         Assert.Contains("BackupCleanupAudit", tables);
-        Assert.Contains("5", versions);
+        Assert.Contains("6", versions);
         Assert.Contains("DeliveryHistory", tables);
     }
 

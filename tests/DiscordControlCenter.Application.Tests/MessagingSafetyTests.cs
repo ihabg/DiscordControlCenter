@@ -1,4 +1,7 @@
 using System.Collections.Immutable;
+using DiscordControlCenter.Application.Explorer;
+using DiscordControlCenter.Core.Bots;
+using DiscordControlCenter.Core.Explorer;
 using DiscordControlCenter.Application.Messaging;
 using DiscordControlCenter.Core.Messaging;
 
@@ -6,6 +9,50 @@ namespace DiscordControlCenter.Application.Tests;
 
 public sealed class MessagingSafetyTests
 {
+    [Fact]
+    public async Task ApprovalPreflightAlwaysReturnsFourteenStableSafeChecks()
+    {
+        var botId = Guid.NewGuid();
+        var approval = Approval(botId, new MessageContent("Saved message", null, AllowedMentionPolicy.None));
+        var service = new ScheduledApprovalPreflightService(
+            new MemoryBotRepository(),
+            new FakeConnectionManager(),
+            new FakeOperationExplorer(BotExplorerSnapshot.Disconnected(botId)),
+            new PermissionResolutionService());
+
+        var result = await service.EvaluateAsync(approval, CancellationToken.None);
+
+        Assert.Equal(14, result.Checks.Count);
+        Assert.Equal(14, result.Checks.Select(check => check.Id).Distinct().Count());
+        Assert.Equal(Enum.GetValues<ScheduledApprovalPreflightCheckId>(), result.Checks.Select(check => check.Id));
+        Assert.All(result.Checks, check =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(check.Label));
+            Assert.False(string.IsNullOrWhiteSpace(check.Explanation));
+        });
+        Assert.Equal(ScheduledApprovalPreflightState.Blocked, result.Checks[4].State);
+        Assert.Equal(ScheduledApprovalPreflightState.NotRequired, result.Checks[11].State);
+        Assert.Equal(ScheduledApprovalPreflightState.NotRequired, result.Checks[12].State);
+        Assert.Equal(ScheduledApprovalPreflightState.NotRequired, result.Checks[13].State);
+    }
+
+    [Fact]
+    public void ImmutableUsageUsesSharedLimitsAndPreservesEmbedFieldOrder()
+    {
+        var content = new MessageContent(
+            new string('x', 1_800),
+            new EmbedDraft("Title", new string('d', 4_097), null, null, "Author", null, null, null, null, "Footer", null, null,
+                [new EmbedFieldDraft("First", "Value", false), new EmbedFieldDraft("Second", "Value", true)]),
+            AllowedMentionPolicy.None);
+
+        var usage = MessageLimits.GetUsage(content);
+
+        Assert.Equal(ContentUsageState.NearLimit, Assert.Single(usage.PlainMessageRows).State);
+        Assert.Equal(ContentUsageState.OverLimit, usage.EmbedRows.Single(row => row.Id == "embed.description").State);
+        Assert.Equal(["embed.field.0.name", "embed.field.0.value", "embed.field.1.name", "embed.field.1.value"], usage.EmbedRows.Where(row => row.Id.StartsWith("embed.field.", StringComparison.Ordinal)).Select(row => row.Id));
+        Assert.Equal(MessageLimits.MaximumMessageCharacters, usage.PlainMessageRows[0].Maximum);
+    }
+
     [Fact]
     public void PlannerRequiresAnExplicitRecipientForDirectMessage()
     {
@@ -117,6 +164,21 @@ public sealed class MessagingSafetyTests
     {
         public MessagePreflightResult Validate(MessageOperationPlan plan) =>
             new(true, false, [], DateTimeOffset.UtcNow);
+    }
+
+    private static ScheduledMessageApproval Approval(Guid botId, MessageContent content)
+    {
+        var definition = new ScheduledMessageDefinition(
+            Guid.NewGuid(), botId, MessageDestination.Channel(1, "Test", 2, "general"), null, content,
+            ScheduledMessageRecurrence.Daily, new TimeOnly(12, 0), TimeZoneInfo.Utc.Id,
+            ImmutableArray<DayOfWeek>.Empty, DateTimeOffset.UtcNow, null, true,
+            MissedOccurrencePolicy.RequireManualApproval, 0, null, null);
+        return new ScheduledMessageApproval(
+            new ScheduledMessageOccurrence(Guid.NewGuid(), definition.Id, DateTimeOffset.UtcNow, MessageOperationState.PendingApproval, Guid.NewGuid(), null, null), definition)
+        {
+            ImmutableContent = content,
+            Compatibility = SnapshotCompatibility.Supported
+        };
     }
 
     private sealed class SuccessfulWriter : IDiscordMessageWriter
