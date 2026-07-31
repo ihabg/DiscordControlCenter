@@ -18,7 +18,7 @@ public sealed class ScheduledApprovalService(
     public async Task<MessageDeliveryResult?> ApproveAsync(Guid occurrenceId, CancellationToken cancellationToken)
     {
         var approval = await repository.GetApprovalAsync(occurrenceId, cancellationToken).ConfigureAwait(false);
-        if (approval is null || approval.Occurrence.State != MessageOperationState.PendingApproval
+        if (approval is null || approval.Compatibility is not (SnapshotCompatibility.Supported or SnapshotCompatibility.SupportedLegacy) || approval.Occurrence.State != MessageOperationState.PendingApproval
             || !await repository.TryClaimApprovalAsync(occurrenceId, Guid.NewGuid(), cancellationToken).ConfigureAwait(false)) return null;
 
         if (approval.ImmutableContent is null)

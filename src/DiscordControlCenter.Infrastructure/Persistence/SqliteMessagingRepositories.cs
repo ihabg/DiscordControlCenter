@@ -340,6 +340,24 @@ public sealed class SqliteScheduledMessageRepository(SqliteConnectionFactory con
         return results;
     }
 
+    public async Task<ScheduledApprovalPage> QueryApprovalsAsync(ScheduledApprovalQuery query, CancellationToken cancellationToken)
+    {
+        var page = Math.Max(1, query.PageNumber); var size = Math.Clamp(query.PageSize, 1, 100);
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        var where = "WHERE ($botId IS NULL OR s.BotProfileId = $botId) AND ($serverId IS NULL OR s.ServerId = $serverId) AND ($scheduleId IS NULL OR o.ScheduledMessageId = $scheduleId) AND ($state IS NULL OR o.State = $state) AND ($fromDue IS NULL OR o.OccurrenceAt >= $fromDue) AND ($toDue IS NULL OR o.OccurrenceAt <= $toDue)";
+        await using var count = connection.CreateCommand(); count.CommandText = $"SELECT COUNT(*) FROM ScheduledMessageOccurrences o INNER JOIN ScheduledMessages s ON s.Id = o.ScheduledMessageId {where};"; AddQueryParameters(count, query); var total = Convert.ToInt32(await count.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
+        await using var command = connection.CreateCommand(); command.CommandText = $"SELECT o.OccurrenceId, o.ScheduledMessageId, o.OccurrenceAt, o.State, o.CorrelationId, o.FinishedAt, o.SafeFailureCode, o.ImmutableDeliverySnapshotJson, o.ManualDecision FROM ScheduledMessageOccurrences o INNER JOIN ScheduledMessages s ON s.Id = o.ScheduledMessageId {where} ORDER BY o.OccurrenceAt {(query.Sort == ScheduledApprovalSort.DueAscending ? "ASC" : "DESC")} LIMIT $limit OFFSET $offset;"; AddQueryParameters(command, query); command.Parameters.AddWithValue("$limit", size); command.Parameters.AddWithValue("$offset", (page - 1) * size);
+        var items = new List<ScheduledApprovalListItem>(); await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            try { var approval = ReadApproval(reader); var d = approval.Snapshot; var c = approval.ImmutableContent; items.Add(new ScheduledApprovalListItem(approval.Occurrence.Id, d.Id, d.Id.ToString("D"), d.BotProfileId, d.Destination.ServerId, d.Destination.ServerName, d.Destination.ChannelId, d.Destination.ChannelName ?? "Unknown channel", approval.Occurrence.OccurrenceAt, d.TimeZoneId, null, approval.Occurrence.State, d.TemplateId, approval.TemplateVersion, c is not null && c.Body.Length > 0, c?.Embed is not null, c?.AllowedMentions.HasBroadMentions == true, approval.Compatibility == SnapshotCompatibility.SupportedLegacy ? 0 : 1, approval.Compatibility, approval.Occurrence.CorrelationId, approval.Occurrence.SafeFailureCode, approval.Occurrence.FinishedAt)); } catch { }
+        }
+        return new ScheduledApprovalPage(items, total, page, size, DateTimeOffset.UtcNow);
+    }
+
+    private static void AddQueryParameters(Microsoft.Data.Sqlite.SqliteCommand command, ScheduledApprovalQuery query)
+    { command.Parameters.AddWithValue("$botId", query.BotProfileId?.ToString("D") ?? (object)DBNull.Value); command.Parameters.AddWithValue("$serverId", query.ServerId?.ToString(CultureInfo.InvariantCulture) ?? (object)DBNull.Value); command.Parameters.AddWithValue("$scheduleId", query.ScheduleId?.ToString("D") ?? (object)DBNull.Value); command.Parameters.AddWithValue("$state", query.State?.ToString() ?? (object)DBNull.Value); command.Parameters.AddWithValue("$fromDue", query.FromDue?.ToString("O") ?? (object)DBNull.Value); command.Parameters.AddWithValue("$toDue", query.ToDue?.ToString("O") ?? (object)DBNull.Value); }
+
     public async Task<ScheduledMessageApproval?> GetApprovalAsync(Guid occurrenceId, CancellationToken cancellationToken)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -376,6 +394,7 @@ public sealed class SqliteScheduledMessageRepository(SqliteConnectionFactory con
         var snapshotJson = reader.IsDBNull(7) ? throw new InvalidOperationException("Approval snapshot is unavailable.") : reader.GetString(7);
         var envelope = JsonSerializer.Deserialize<ScheduledDeliverySnapshot>(snapshotJson, JsonOptions);
         var snapshot = envelope?.Schedule ?? JsonSerializer.Deserialize<ScheduledMessageDefinition>(snapshotJson, JsonOptions) ?? throw new InvalidOperationException("Approval snapshot is invalid.");
-        return new ScheduledMessageApproval(new ScheduledMessageOccurrence(Guid.Parse(reader.GetString(0)), Guid.Parse(reader.GetString(1)), DateTimeOffset.Parse(reader.GetString(2), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), Enum.Parse<MessageOperationState>(reader.GetString(3)), Guid.Parse(reader.GetString(4)), reader.IsDBNull(5) ? null : DateTimeOffset.Parse(reader.GetString(5), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), reader.IsDBNull(6) ? null : reader.GetString(6)) { ImmutableDeliverySnapshotJson = snapshotJson, ManualDecision = reader.IsDBNull(8) ? null : reader.GetString(8) }, snapshot) { ImmutableContent = envelope?.Content ?? snapshot.InlineContent, TemplateVersion = envelope?.TemplateVersion };
+        var compatibility = envelope is null ? SnapshotCompatibility.SupportedLegacy : envelope.SchemaVersion > 1 ? SnapshotCompatibility.UnsupportedNewerVersion : snapshot.Destination.ChannelId is null || envelope.Content.AllowedMentions is null ? SnapshotCompatibility.MissingRequiredData : SnapshotCompatibility.Supported;
+        return new ScheduledMessageApproval(new ScheduledMessageOccurrence(Guid.Parse(reader.GetString(0)), Guid.Parse(reader.GetString(1)), DateTimeOffset.Parse(reader.GetString(2), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), Enum.Parse<MessageOperationState>(reader.GetString(3)), Guid.Parse(reader.GetString(4)), reader.IsDBNull(5) ? null : DateTimeOffset.Parse(reader.GetString(5), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), reader.IsDBNull(6) ? null : reader.GetString(6)) { ImmutableDeliverySnapshotJson = snapshotJson, ManualDecision = reader.IsDBNull(8) ? null : reader.GetString(8) }, snapshot) { ImmutableContent = envelope?.Content ?? snapshot.InlineContent, TemplateVersion = envelope?.TemplateVersion, Compatibility = compatibility, CompatibilityMessage = compatibility == SnapshotCompatibility.SupportedLegacy ? "This occurrence uses a supported legacy snapshot." : compatibility == SnapshotCompatibility.UnsupportedNewerVersion ? "This snapshot was created by a newer application version." : compatibility == SnapshotCompatibility.MissingRequiredData ? "The saved snapshot is missing delivery data." : null };
     }
 }

@@ -299,6 +299,8 @@ public sealed record ScheduledMessageApproval(ScheduledMessageOccurrence Occurre
 {
     public MessageContent? ImmutableContent { get; init; }
     public int? TemplateVersion { get; init; }
+    public SnapshotCompatibility Compatibility { get; init; } = SnapshotCompatibility.Supported;
+    public string? CompatibilityMessage { get; init; }
 }
 
 public sealed record ScheduledDeliverySnapshot(
@@ -308,6 +310,12 @@ public sealed record ScheduledDeliverySnapshot(
     Guid? TemplateId,
     int? TemplateVersion,
     DateTimeOffset ReservedAt);
+
+public enum ScheduledApprovalSort { DueAscending, DueDescending, NewestReservation, OldestReservation, ScheduleName, ServerName, State }
+public enum SnapshotCompatibility { Supported, SupportedLegacy, UnsupportedNewerVersion, Corrupt, MissingRequiredData }
+public sealed record ScheduledApprovalQuery(string? Search, Guid? BotProfileId, ulong? ServerId, Guid? ScheduleId, MessageOperationState? State, DateTimeOffset? FromDue, DateTimeOffset? ToDue, SnapshotCompatibility? Compatibility, ScheduledApprovalSort Sort, int PageNumber, int PageSize);
+public sealed record ScheduledApprovalListItem(Guid OccurrenceId, Guid ScheduleId, string ScheduleName, Guid BotProfileId, ulong ServerId, string ServerName, ulong? ChannelId, string ChannelName, DateTimeOffset DueAt, string TimeZoneId, DateTimeOffset? ReservedAt, MessageOperationState State, Guid? TemplateId, int? TemplateVersion, bool HasContent, bool HasEmbed, bool HasBroadMentionWarning, int SnapshotSchemaVersion, SnapshotCompatibility Compatibility, Guid CorrelationId, string? SafeFailureCode, DateTimeOffset? DecisionAt);
+public sealed record ScheduledApprovalPage(IReadOnlyList<ScheduledApprovalListItem> Items, int TotalCount, int PageNumber, int PageSize, DateTimeOffset QueriedAt);
 
 public sealed record AutomationCondition(
     Guid ConditionId,
