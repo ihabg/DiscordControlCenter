@@ -90,6 +90,7 @@
                             <ItemsControl ItemsSource="{Binding ApprovalPreflightChecks}" Margin="0,8,0,0"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" Margin="0,2,0,0" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
                         </StackPanel>
                     </Border>
+                    <TextBlock Text="{Binding ApprovalDisabledReason}" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" Margin="0,8,0,0" />
                 </StackPanel>
             </ScrollViewer>
         </Grid>

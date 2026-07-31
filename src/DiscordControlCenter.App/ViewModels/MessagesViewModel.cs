@@ -55,6 +55,7 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
     private bool _isApprovalBusy;
     private int _approvalSelectionVersion;
     private string? _approvalPreflightSummary;
+    private bool _approvalPreflightAllowsSend;
     private readonly Array _destinationModes = Enum.GetValues<MessageDestinationKind>();
 
     public MessagesViewModel(
@@ -117,7 +118,8 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
     public ScheduledMessageApproval? ApprovalDetails { get => _approvalDetails; private set => SetProperty(ref _approvalDetails, value); }
     public bool IsApprovalBusy { get => _isApprovalBusy; private set { if (SetProperty(ref _isApprovalBusy, value)) NotifyApprovalCommands(); } }
     public string? ApprovalPreflightSummary { get => _approvalPreflightSummary; private set => SetProperty(ref _approvalPreflightSummary, value); }
-    public bool CanApproveApproval => !IsApprovalBusy && ApprovalDetails?.Occurrence.State == MessageOperationState.PendingApproval && ApprovalDetails.Compatibility is SnapshotCompatibility.Supported or SnapshotCompatibility.SupportedLegacy;
+    public bool CanApproveApproval => !IsApprovalBusy && _approvalPreflightAllowsSend && ApprovalDetails?.Occurrence.State == MessageOperationState.PendingApproval && ApprovalDetails.Compatibility is SnapshotCompatibility.Supported or SnapshotCompatibility.SupportedLegacy;
+    public string ApprovalDisabledReason => ApprovalDetails is null ? "Select a pending occurrence." : IsApprovalBusy ? "Another decision is currently running." : ApprovalDetails.Compatibility is not (SnapshotCompatibility.Supported or SnapshotCompatibility.SupportedLegacy) ? "This immutable snapshot is not supported by this application version." : !_approvalPreflightAllowsSend ? "Refresh current Discord status and resolve any blocking checks before sending." : string.Empty;
     public string AllowedMentionSummary => ApprovalDetails?.ImmutableContent is not { } content ? "No immutable mention policy is available." : content.AllowedMentions.AllowEveryoneAndHere ? "Everyone and here mentions are allowed; stronger confirmation is required." : content.AllowedMentions.AllowRoleMentions ? "Role mentions are allowed for the saved target IDs." : content.AllowedMentions.AllowedUserIds.Length > 0 ? "Only the saved user mention IDs are allowed." : "Everyone, here, role, and user mentions are blocked.";
     public string ApprovalMessageUsage => ApprovalDetails?.ImmutableContent is { } content ? $"{content.Body.Length:N0} / {MessageLimits.MaximumMessageCharacters:N0} characters" : string.Empty;
     public string ApprovalEmbedUsage => ApprovalDetails?.ImmutableContent is { Embed: { } embed } ? $"{embed.Fields.Length:N0} fields; {MessageLimits.Validate(new MessageContent(string.Empty, embed, AllowedMentionPolicy.None)).Count:N0} validation warning(s)" : "No embed";
@@ -265,7 +267,7 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
 
     private async Task LoadApprovalDetailsAsync()
     {
-        var selection = SelectedApproval; var version = Interlocked.Increment(ref _approvalSelectionVersion); ApprovalDetails = null;
+        var selection = SelectedApproval; var version = Interlocked.Increment(ref _approvalSelectionVersion); ApprovalDetails = null; _approvalPreflightAllowsSend = false; OnPropertyChanged(nameof(ApprovalDisabledReason));
         if (selection is null) return;
         try { var details = await _scheduledMessages.GetApprovalAsync(selection.OccurrenceId, CancellationToken.None).ConfigureAwait(false); if (version == Volatile.Read(ref _approvalSelectionVersion)) _dispatcher.Post(() => { ApprovalDetails = details; OnPropertyChanged(nameof(AllowedMentionSummary)); OnPropertyChanged(nameof(ApprovalMessageUsage)); OnPropertyChanged(nameof(ApprovalEmbedUsage)); RefreshApprovalPreflight(); }); } catch { if (version == Volatile.Read(ref _approvalSelectionVersion)) _dispatcher.Post(() => StatusMessage = "Approval details could not be loaded."); }
     }
@@ -282,11 +284,13 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
         var draft = new MessageDraft(Guid.NewGuid(), ApprovalDetails.Snapshot.BotProfileId, ApprovalDetails.Snapshot.Destination, ApprovalDetails.ImmutableContent, ImmutableArray<MessageAttachmentReference>.Empty, null, DateTimeOffset.UtcNow);
         var plan = _planner.Build(draft, MessageOperationKind.ScheduledChannelMessage).Plan;
         var check = plan is null ? null : _messagePreflight.Validate(plan);
+        _approvalPreflightAllowsSend = check?.IsAllowed == true && ApprovalDetails.Compatibility is SnapshotCompatibility.Supported or SnapshotCompatibility.SupportedLegacy;
         ApprovalPreflightSummary = check is null ? "The immutable message no longer meets delivery limits." : check.IsAllowed ? "Allowed — current Discord checks passed." : string.Join(" ", check.Issues.Select(issue => issue.Message));
         ApprovalPreflightChecks.Add(ApprovalDetails.Compatibility is SnapshotCompatibility.Supported or SnapshotCompatibility.SupportedLegacy ? "Snapshot compatibility — Allowed" : "Snapshot compatibility — Blocked");
         foreach (var issue in check?.Issues ?? []) ApprovalPreflightChecks.Add($"Blocked — {issue.Message}");
         if (check?.IsAllowed == true) { ApprovalPreflightChecks.Add("Bot connection, destination, and required permissions — Allowed"); ApprovalPreflightChecks.Add(ApprovalDetails.ImmutableContent.Embed is null ? "Embed Links — Not required" : "Embed Links — Allowed"); }
         NotifyApprovalCommands();
+        OnPropertyChanged(nameof(ApprovalDisabledReason));
     }
 
     private bool TryBuildDraft(out MessageDraft draft)
