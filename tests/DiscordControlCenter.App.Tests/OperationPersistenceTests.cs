@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using DiscordControlCenter.Core.Explorer;
+using DiscordControlCenter.Core.Messaging;
 using DiscordControlCenter.Core.Operations;
 using DiscordControlCenter.Infrastructure.Configuration;
 using DiscordControlCenter.Infrastructure.Persistence;
@@ -13,7 +14,7 @@ namespace DiscordControlCenter.App.Tests;
 public sealed class OperationPersistenceTests
 {
     [Fact]
-    public async Task MigrationCreatesVersionFourOperationalRecoveryTables()
+    public async Task MigrationCreatesOperationalRecoveryAndMessagingTables()
     {
         await using var database = await TestDatabase.CreateAsync();
 
@@ -31,6 +32,32 @@ public sealed class OperationPersistenceTests
         Assert.Contains("OperationStateTransitions", tables);
         Assert.Contains("ManualReconciliationDecisions", tables);
         Assert.Contains("BackupCleanupAudit", tables);
+        Assert.Contains("5", versions);
+        Assert.Contains("DeliveryHistory", tables);
+    }
+
+    [Fact]
+    public async Task DeliveryHistoryStoresOnlySafeOperationalMetadata()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var repository = new SqliteDeliveryHistoryRepository(database.ConnectionFactory);
+        var secretBody = "body that must never be stored in the delivery ledger";
+        var plan = new MessageOperationPlan(
+            Guid.NewGuid(), Guid.NewGuid(), MessageOperationKind.ManualChannelMessage, Guid.NewGuid(),
+            MessageDestination.Channel(123, "Server", 456, "general"),
+            new MessageContent(secretBody, null, AllowedMentionPolicy.None), DateTimeOffset.UtcNow,
+            0, false, "Confirm delivery", null, null);
+        var result = new MessageDeliveryResult(
+            plan.OperationId, plan.CorrelationId, MessageOperationState.Delivered,
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, 789, 1, null);
+
+        await repository.RecordAsync(plan, result, CancellationToken.None);
+
+        var values = await database.ReadStringsAsync("SELECT Kind || ':' || State || ':' || AttemptCount FROM DeliveryHistory;");
+        var columns = await database.ReadStringsAsync("SELECT name FROM pragma_table_info('DeliveryHistory');");
+        Assert.Equal(["ManualChannelMessage:Delivered:1"], values);
+        Assert.DoesNotContain(columns, column => column.Contains("content", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(secretBody, string.Join('|', values), StringComparison.Ordinal);
     }
 
     [Fact]

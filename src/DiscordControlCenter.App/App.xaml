@@ -61,6 +61,12 @@
             <DataTemplate DataType="{x:Type vm:BackupBrowserViewModel}">
                 <views:BackupBrowserView />
             </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:MessagesViewModel}">
+                <views:MessagesView />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:AutomationViewModel}">
+                <views:AutomationView />
+            </DataTemplate>
             <DataTemplate DataType="{x:Type vm:PlaceholderViewModel}">
                 <views:PlaceholderView />
             </DataTemplate>

@@ -1,11 +1,13 @@
 using System.Collections.Concurrent;
 using DiscordControlCenter.Application.Common;
 using DiscordControlCenter.Application.Explorer;
+using DiscordControlCenter.Application.Messaging;
 using DiscordControlCenter.Application.Operations;
 using DiscordControlCenter.Core.Bots;
 using DiscordControlCenter.Core.Common;
 using DiscordControlCenter.Core.Explorer;
 using DiscordControlCenter.Core.Operations;
+using DiscordControlCenter.Core.Messaging;
 using DiscordControlCenter.Core.Security;
 using Microsoft.Extensions.Logging;
 
@@ -19,6 +21,7 @@ public sealed class BotConnectionManager(
     ILogger<BotConnectionManager> logger) : IBotConnectionManager
     , IBotExplorerService
     , IDiscordChannelWriter
+    , IDiscordMessageWriter
 {
     private readonly ConcurrentDictionary<Guid, BotRuntime> _runtimes = new();
     private readonly ConcurrentDictionary<Guid, BotConnectionSnapshot> _snapshots = new();
@@ -483,6 +486,22 @@ public sealed class BotConnectionManager(
                 cancellationToken),
             cancellationToken);
 
+    public Task<MessageWriteOutcome> SendChannelMessageAsync(
+        MessageOperationPlan plan,
+        CancellationToken cancellationToken) =>
+        ExecuteMessageWriteAsync(
+            plan.BotProfileId,
+            client => client.SendChannelMessageAsync(plan, cancellationToken),
+            cancellationToken);
+
+    public Task<MessageWriteOutcome> SendDirectMessageAsync(
+        MessageOperationPlan plan,
+        CancellationToken cancellationToken) =>
+        ExecuteMessageWriteAsync(
+            plan.BotProfileId,
+            client => client.SendDirectMessageAsync(plan, cancellationToken),
+            cancellationToken);
+
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
@@ -557,6 +576,32 @@ public sealed class BotConnectionManager(
         }
     }
 
+    private async Task<MessageWriteOutcome> ExecuteMessageWriteAsync(
+        Guid botProfileId,
+        Func<IDiscordBotClient, Task<MessageWriteOutcome>> operation,
+        CancellationToken cancellationToken)
+    {
+        if (!_runtimes.TryGetValue(botProfileId, out var runtime))
+        {
+            return MessageWriteUnavailable();
+        }
+
+        await runtime.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (runtime.Client.Snapshot.State != BotConnectionState.Connected)
+            {
+                return MessageWriteUnavailable();
+            }
+
+            return await operation(runtime.Client).ConfigureAwait(false);
+        }
+        finally
+        {
+            runtime.Gate.Release();
+        }
+    }
+
     private static ChannelWriteOutcome WriteUnavailable(string code, string message) =>
         new(
             false,
@@ -569,6 +614,17 @@ public sealed class BotConnectionManager(
                 false,
                 OperationOutcomeCertainty.KnownFailed),
             OperationOutcomeCertainty.KnownFailed);
+
+    private static MessageWriteOutcome MessageWriteUnavailable() =>
+        new(
+            false,
+            null,
+            new(
+                MessageDeliveryFailureKind.BotDisconnected,
+                "BOT_DISCONNECTED",
+                "The selected bot is not connected.",
+                false,
+                false));
 
     private static DataCompleteness AggregateCompleteness(
         IEnumerable<DataCompleteness> values,

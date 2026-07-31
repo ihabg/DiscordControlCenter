@@ -5,6 +5,7 @@ using DiscordControlCenter.App.Services;
 using DiscordControlCenter.App.ViewModels;
 using DiscordControlCenter.Application.Bots;
 using DiscordControlCenter.Application.Explorer;
+using DiscordControlCenter.Application.Messaging;
 using DiscordControlCenter.Application.Operations;
 using DiscordControlCenter.Application.Common;
 using DiscordControlCenter.Core.Auditing;
@@ -13,6 +14,7 @@ using DiscordControlCenter.Core.Common;
 using DiscordControlCenter.Core.Persistence;
 using DiscordControlCenter.Core.Security;
 using DiscordControlCenter.Core.Operations;
+using DiscordControlCenter.Core.Messaging;
 using DiscordControlCenter.Discord;
 using DiscordControlCenter.Infrastructure.Configuration;
 using DiscordControlCenter.Infrastructure.Persistence;
@@ -99,6 +101,19 @@ public partial class App : System.Windows.Application
                         services.AddSingleton<ChannelOperationScheduler>();
                         services.AddSingleton<IChannelOperationScheduler>(
                             provider => provider.GetRequiredService<ChannelOperationScheduler>());
+                        services.AddSingleton<IMessageTemplateRepository, SqliteMessageTemplateRepository>();
+                        services.AddSingleton<IAutomationRuleRepository, SqliteAutomationRuleRepository>();
+                        services.AddSingleton<IAutomationExecutionRepository, SqliteAutomationExecutionRepository>();
+                        services.AddSingleton<IDeliveryHistoryRepository, SqliteDeliveryHistoryRepository>();
+                        services.AddSingleton<IMessagePlanBuilder, MessagePlanBuilder>();
+                        services.AddSingleton<ITemplateRenderer, TemplateRenderer>();
+                        services.AddSingleton<IMessagePreflightService, MessagePreflightService>();
+                        services.AddSingleton<IDiscordMessageWriter>(
+                            provider => provider.GetRequiredService<BotConnectionManager>());
+                        services.AddSingleton<IMessageDeliveryExecutor, MessageDeliveryExecutor>();
+                        services.AddSingleton<IMessageDeliveryDialogService, MessageDeliveryDialogService>();
+                        services.AddSingleton<IScheduledMessageService, ScheduledMessageService>();
+                        services.AddSingleton<IAutomationRulePreflightService, AutomationRulePreflightService>();
                         services.AddSingleton<IBotProfileService, BotProfileService>();
                         services.AddSingleton<IUserDialogService, WpfUserDialogService>();
                         services.AddSingleton<IChannelOperationDialogService, ChannelOperationDialogService>();
@@ -113,6 +128,8 @@ public partial class App : System.Windows.Application
                         services.AddSingleton<VoiceViewModel>();
                         services.AddSingleton<OperationCenterViewModel>();
                         services.AddSingleton<BackupBrowserViewModel>();
+                        services.AddSingleton<MessagesViewModel>();
+                        services.AddSingleton<AutomationViewModel>();
                         services.AddSingleton<MainWindowViewModel>();
                         services.AddSingleton<MainWindow>();
                     })

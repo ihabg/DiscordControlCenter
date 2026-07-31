@@ -1,0 +1,48 @@
+<Window x:Class="DiscordControlCenter.App.Views.MessageConfirmationWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+        Title="Confirm message delivery"
+        Width="620"
+        Height="620"
+        MinWidth="500"
+        MinHeight="460"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Style="{StaticResource DialogWindowStyle}">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <TextBlock Text="Confirm message delivery" Style="{StaticResource PageHeadingStyle}" />
+                <TextBlock Text="{Binding Preview.ApproximationLabel}" Style="{StaticResource SecondaryTextStyle}" Margin="0,5,0,0" />
+                <Border Style="{StaticResource PanelSurfaceStyle}" Padding="16" Margin="0,16,0,0">
+                    <StackPanel>
+                        <TextBlock Text="BOT" Style="{StaticResource DetailLabelStyle}" />
+                        <TextBlock Text="{Binding Preview.BotDisplayName}" />
+                        <TextBlock Text="DESTINATION" Style="{StaticResource DetailLabelStyle}" Margin="0,12,0,0" />
+                        <TextBlock Text="{Binding Preview.Plan.Destination.ServerName}" />
+                        <TextBlock Text="{Binding Preview.Plan.Destination.ChannelName}" />
+                        <TextBlock Text="{Binding Preview.Plan.Destination.RecipientDisplayName}" />
+                        <TextBlock Text="MESSAGE" Style="{StaticResource DetailLabelStyle}" Margin="0,12,0,0" />
+                        <TextBlock Text="{Binding Preview.Plan.Content.Body}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+                <ItemsControl ItemsSource="{Binding Preview.Warnings}" Margin="0,12,0,0">
+                    <ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" /></DataTemplate></ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <StackPanel Visibility="{Binding RequiresTypedConfirmation, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,14,0,0">
+                    <TextBlock Text="{Binding ConfirmationInstruction}" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
+                    <TextBox Text="{Binding TypedConfirmation, UpdateSourceTrigger=PropertyChanged}" Tag="Typed confirmation" Margin="0,8,0,0" automation:AutomationProperties.Name="Message typed confirmation" />
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+            <Button Content="Cancel" IsCancel="True" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,8,0" />
+            <Button Content="Send one message" IsDefault="True" IsEnabled="{Binding CanConfirm}" Click="OnConfirmClick" Style="{StaticResource PrimaryButtonStyle}" automation:AutomationProperties.Name="Confirm one message delivery" />
+        </StackPanel>
+    </Grid>
+</Window>

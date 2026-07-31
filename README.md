@@ -401,6 +401,17 @@ Use only harmless, clearly named resources in a disposable private server:
 22. Inspect SQLite/logs for tokens, authorization data, raw payloads, message content,
     DMs, member directories, or unsafe exception messages.
 23. Verify clean application shutdown terminates queue workers and gateway clients.
+24. In Messages, verify no send control is usable until a connected bot, server, and
+    supported destination are selected; then inspect the preview without sending.
+25. Enter `@everyone` in a disposable draft and confirm the dialog requires the exact
+    `CONFIRM MESSAGE DELIVERY` text. Cancel the dialog; no Discord message should be
+    created.
+26. Save a harmless template containing a member display-name variable and verify a
+    value resembling `@everyone` renders without an active mention.
+27. In Automation, create and save a draft. Verify it remains Draft after reload and
+    preflight explains why an empty or incomplete workflow cannot be enabled.
+28. Inspect `DeliveryHistory` after a deliberately cancelled/blocked send attempt and
+    verify it contains no message body, embed text, DM content, token, or raw payload.
 
 ## Known limitations
 
@@ -430,6 +441,29 @@ Use only harmless, clearly named resources in a disposable private server:
 - Cleanup runs on user command rather than a background timer, so retention can never
   unexpectedly delete an existing backup.
 - Recreating structure from backup is partial recovery, not undo deletion.
+
+## Phase 5A messaging and automation foundation
+
+Phase 5A introduces the guarded foundations for bot messaging and member-join
+automation. The Messages view supports a selected accessible text, announcement, or
+thread channel, or exactly one selected member for a direct message. Every send flows
+through a typed confirmation dialog, a current-state preflight, the narrow Discord
+writer boundary, and a safe delivery ledger. Broad mention-like content requires the
+additional exact text `CONFIRM MESSAGE DELIVERY`; actual Discord writes default to no
+allowed mentions.
+
+Templates and automation drafts are versioned in SQLite. Template rendering resolves a
+small explicit variable set and neutralizes member-controlled `@` characters. Scheduled
+message recurrence and missed-occurrence policy calculation are modeled but no
+background scheduler is enabled. Automation is intentionally draft-only: preflight
+checks current connection, full member access, Developer Portal acknowledgement,
+member completeness, permissions, role hierarchy, and bounded action policies before
+any future enablement. It does not yet subscribe to joins, assign roles, or send
+automated messages.
+
+The delivery ledger stores IDs, operation state, attempts, timestamps, and safe failure
+codes only. It deliberately excludes message bodies, embeds, DMs, template values,
+tokens, raw Discord payloads, and member directories.
 
 ## Phase 4B status and recommended next phase
 

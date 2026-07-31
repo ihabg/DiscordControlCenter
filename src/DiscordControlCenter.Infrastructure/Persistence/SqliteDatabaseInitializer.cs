@@ -9,7 +9,7 @@ public sealed class SqliteDatabaseInitializer(
     SqliteConnectionFactory connectionFactory,
     ILogger<SqliteDatabaseInitializer> logger) : IDatabaseInitializer
 {
-    private const int CurrentSchemaVersion = 4;
+    private const int CurrentSchemaVersion = 5;
 
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
@@ -243,6 +243,125 @@ public sealed class SqliteDatabaseInitializer(
                 .ConfigureAwait(false);
         }
 
+        await using (var phase5aMigrationCommand = connection.CreateCommand())
+        {
+            phase5aMigrationCommand.Transaction = transaction;
+            phase5aMigrationCommand.CommandText =
+                """
+                CREATE TABLE IF NOT EXISTS MessageTemplates (
+                    Id TEXT NOT NULL PRIMARY KEY,
+                    Name TEXT NOT NULL,
+                    Description TEXT NULL,
+                    ContentJson TEXT NOT NULL,
+                    VariablesJson TEXT NOT NULL,
+                    TagsJson TEXT NOT NULL,
+                    Version INTEGER NOT NULL,
+                    CreatedAt TEXT NOT NULL,
+                    UpdatedAt TEXT NOT NULL,
+                    LastUsedAt TEXT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS IX_MessageTemplates_Name
+                    ON MessageTemplates (Name COLLATE NOCASE, UpdatedAt DESC);
+
+                CREATE TABLE IF NOT EXISTS ScheduledMessages (
+                    Id TEXT NOT NULL PRIMARY KEY,
+                    BotProfileId TEXT NOT NULL,
+                    ServerId TEXT NOT NULL,
+                    IsEnabled INTEGER NOT NULL,
+                    DefinitionJson TEXT NOT NULL,
+                    CreatedAt TEXT NOT NULL,
+                    UpdatedAt TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS IX_ScheduledMessages_BotServer
+                    ON ScheduledMessages (BotProfileId, ServerId, IsEnabled);
+
+                CREATE TABLE IF NOT EXISTS ScheduledMessageOccurrences (
+                    OccurrenceId TEXT NOT NULL PRIMARY KEY,
+                    ScheduledMessageId TEXT NOT NULL,
+                    OccurrenceAt TEXT NOT NULL,
+                    State TEXT NOT NULL,
+                    CorrelationId TEXT NOT NULL,
+                    FinishedAt TEXT NULL,
+                    SafeFailureCode TEXT NULL,
+                    UNIQUE (ScheduledMessageId, OccurrenceAt)
+                );
+
+                CREATE TABLE IF NOT EXISTS AutomationRules (
+                    Id TEXT NOT NULL PRIMARY KEY,
+                    BotProfileId TEXT NOT NULL,
+                    ServerId TEXT NOT NULL,
+                    State TEXT NOT NULL,
+                    CurrentVersion INTEGER NOT NULL,
+                    Name TEXT NOT NULL,
+                    UpdatedAt TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS IX_AutomationRules_BotServer
+                    ON AutomationRules (BotProfileId, ServerId, State, UpdatedAt DESC);
+
+                CREATE TABLE IF NOT EXISTS AutomationRuleVersions (
+                    RuleId TEXT NOT NULL,
+                    Version INTEGER NOT NULL,
+                    DefinitionJson TEXT NOT NULL,
+                    CreatedAt TEXT NOT NULL,
+                    PRIMARY KEY (RuleId, Version)
+                );
+
+                CREATE TABLE IF NOT EXISTS AutomationExecutions (
+                    Id TEXT NOT NULL PRIMARY KEY,
+                    RuleId TEXT NOT NULL,
+                    RuleVersion INTEGER NOT NULL,
+                    BotProfileId TEXT NOT NULL,
+                    ServerId TEXT NOT NULL,
+                    MemberId TEXT NOT NULL,
+                    CorrelationId TEXT NOT NULL,
+                    State TEXT NOT NULL,
+                    FailureReason TEXT NOT NULL,
+                    SafeSummary TEXT NOT NULL,
+                    StartedAt TEXT NOT NULL,
+                    FinishedAt TEXT NOT NULL,
+                    UNIQUE (RuleId, RuleVersion, MemberId)
+                );
+
+                CREATE INDEX IF NOT EXISTS IX_AutomationExecutions_RuleTime
+                    ON AutomationExecutions (RuleId, FinishedAt DESC);
+
+                CREATE TABLE IF NOT EXISTS DeliveryHistory (
+                    OperationId TEXT NOT NULL PRIMARY KEY,
+                    CorrelationId TEXT NOT NULL,
+                    Kind TEXT NOT NULL,
+                    BotProfileId TEXT NOT NULL,
+                    ServerId TEXT NOT NULL,
+                    DestinationId TEXT NULL,
+                    RecipientUserId TEXT NULL,
+                    TemplateId TEXT NULL,
+                    TemplateVersion INTEGER NULL,
+                    RuleId TEXT NULL,
+                    RuleVersion INTEGER NULL,
+                    State TEXT NOT NULL,
+                    AttemptCount INTEGER NOT NULL,
+                    SafeFailureCode TEXT NULL,
+                    StartedAt TEXT NOT NULL,
+                    FinishedAt TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS IX_DeliveryHistory_Time
+                    ON DeliveryHistory (FinishedAt DESC);
+
+                CREATE TABLE IF NOT EXISTS AutomationCircuitBreakerState (
+                    RuleId TEXT NOT NULL PRIMARY KEY,
+                    FailureCount INTEGER NOT NULL,
+                    WindowStartedAt TEXT NOT NULL,
+                    IsOpen INTEGER NOT NULL,
+                    OpenedAt TEXT NULL,
+                    SafeReason TEXT NULL
+                );
+                """;
+            await phase5aMigrationCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         await BackfillBackupCatalogAsync(
                 connection,
                 transaction,
@@ -258,6 +377,8 @@ public sealed class SqliteDatabaseInitializer(
                     VALUES (2, $appliedAt);
                 INSERT OR IGNORE INTO SchemaVersions (Version, AppliedAt)
                     VALUES (3, $appliedAt);
+                INSERT OR IGNORE INTO SchemaVersions (Version, AppliedAt)
+                    VALUES (4, $appliedAt);
                 INSERT OR IGNORE INTO SchemaVersions (Version, AppliedAt)
                     VALUES ($version, $appliedAt);
                 """;

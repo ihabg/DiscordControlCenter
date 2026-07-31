@@ -6,10 +6,12 @@ using Discord.WebSocket;
 using DiscordControlCenter.Application.Bots;
 using DiscordControlCenter.Application.Common;
 using DiscordControlCenter.Application.Explorer;
+using DiscordControlCenter.Application.Messaging;
 using DiscordControlCenter.Application.Operations;
 using DiscordControlCenter.Core.Bots;
 using DiscordControlCenter.Core.Explorer;
 using DiscordControlCenter.Core.Operations;
+using DiscordControlCenter.Core.Messaging;
 using Microsoft.Extensions.Logging;
 
 namespace DiscordControlCenter.Discord;
@@ -591,6 +593,50 @@ public sealed class DiscordBotClient : IDiscordBotClient
                     .DeleteAsync(CreateRequestOptions(auditReason, cancellationToken))
                     .ConfigureAwait(false);
                 return channelId;
+            },
+            cancellationToken);
+
+    public Task<MessageWriteOutcome> SendChannelMessageAsync(
+        MessageOperationPlan plan,
+        CancellationToken cancellationToken) =>
+        ExecuteMessageWriteAsync(
+            async () =>
+            {
+                var guild = GetWritableGuild(plan.Destination.ServerId);
+                var channel = guild.GetChannel(plan.Destination.ChannelId ?? 0) as IMessageChannel
+                    ?? throw new ChannelWriteValidationException(
+                        "CHANNEL_UNAVAILABLE",
+                        "The destination channel is unavailable.");
+                var message = await channel.SendMessageAsync(
+                    plan.Content.Body,
+                    false,
+                    ToEmbed(plan.Content.Embed),
+                    CreateRequestOptions(plan.SafeAuditContext, cancellationToken),
+                    AllowedMentions.None).ConfigureAwait(false);
+                return message.Id;
+            },
+            cancellationToken);
+
+    public Task<MessageWriteOutcome> SendDirectMessageAsync(
+        MessageOperationPlan plan,
+        CancellationToken cancellationToken) =>
+        ExecuteMessageWriteAsync(
+            async () =>
+            {
+                _ = GetWritableGuild(plan.Destination.ServerId);
+                var user = _client.GetUser(plan.Destination.RecipientUserId ?? 0)
+                    ?? throw new ChannelWriteValidationException(
+                        "MEMBER_UNAVAILABLE",
+                        "The selected direct-message recipient is unavailable in the current bot cache.");
+                var channel = await user.CreateDMChannelAsync(
+                    CreateRequestOptions(plan.SafeAuditContext, cancellationToken)).ConfigureAwait(false);
+                var message = await channel.SendMessageAsync(
+                    plan.Content.Body,
+                    false,
+                    ToEmbed(plan.Content.Embed),
+                    CreateRequestOptions(plan.SafeAuditContext, cancellationToken),
+                    AllowedMentions.None).ConfigureAwait(false);
+                return message.Id;
             },
             cancellationToken);
 
@@ -1285,6 +1331,100 @@ public sealed class DiscordBotClient : IDiscordBotClient
             10080 => ThreadArchiveDuration.OneWeek,
             _ => null
         };
+
+    private static Embed? ToEmbed(EmbedDraft? draft)
+    {
+        if (draft is null)
+        {
+            return null;
+        }
+
+        var builder = new EmbedBuilder
+        {
+            Title = draft.Title,
+            Description = draft.Description,
+            Url = draft.Url,
+            Color = draft.Color is uint color ? new Color(color) : null,
+            ThumbnailUrl = draft.ThumbnailUrl,
+            ImageUrl = draft.ImageUrl,
+            Timestamp = draft.Timestamp
+        };
+        if (!string.IsNullOrWhiteSpace(draft.AuthorName))
+        {
+            builder.Author = new EmbedAuthorBuilder
+            {
+                Name = draft.AuthorName,
+                Url = draft.AuthorUrl,
+                IconUrl = draft.AuthorIconUrl
+            };
+        }
+
+        if (!string.IsNullOrWhiteSpace(draft.FooterText))
+        {
+            builder.Footer = new EmbedFooterBuilder
+            {
+                Text = draft.FooterText,
+                IconUrl = draft.FooterIconUrl
+            };
+        }
+
+        foreach (var field in draft.Fields)
+        {
+            builder.AddField(field.Name, field.Value, field.Inline);
+        }
+
+        return builder.Build();
+    }
+
+    private static async Task<MessageWriteOutcome> ExecuteMessageWriteAsync(
+        Func<Task<ulong>> operation,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return new(true, await operation().ConfigureAwait(false), null);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (ChannelWriteValidationException exception)
+        {
+            return new(false, null, new(
+                MessageDeliveryFailureKind.DestinationUnavailable,
+                exception.SafeCode,
+                exception.SafeMessage,
+                false,
+                false));
+        }
+        catch (HttpException exception) when (exception.HttpCode is System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.NotFound)
+        {
+            return new(false, null, new(
+                MessageDeliveryFailureKind.MissingPermission,
+                "DISCORD_MESSAGE_REJECTED",
+                "Discord rejected delivery because the destination is unavailable or permissions are missing.",
+                false,
+                false));
+        }
+        catch (HttpException)
+        {
+            return new(false, null, new(
+                MessageDeliveryFailureKind.Transient,
+                "DISCORD_MESSAGE_TRANSIENT",
+                "Discord did not confirm message delivery.",
+                true,
+                true));
+        }
+        catch (Exception)
+        {
+            return new(false, null, new(
+                MessageDeliveryFailureKind.UncertainOutcome,
+                "MESSAGE_DELIVERY_UNCERTAIN",
+                "Discord did not confirm message delivery. The application will not repeat it automatically.",
+                false,
+                true));
+        }
+    }
 
     private static async Task<ChannelWriteOutcome> ExecuteWriteAsync(
         Func<Task<ulong?>> operation,

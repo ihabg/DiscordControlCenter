@@ -1,0 +1,72 @@
+<UserControl x:Class="DiscordControlCenter.App.Views.MessagesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+             Background="{StaticResource ContentBackgroundBrush}">
+    <Grid Margin="24,22">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <StackPanel Margin="0,0,0,14">
+            <TextBlock Text="Channel message composer" Style="{StaticResource PageHeadingStyle}" />
+            <TextBlock Text="Compose one channel message or one individual direct message. This is an application preview, not a Discord client."
+                       Style="{StaticResource SecondaryTextStyle}" Margin="0,4,0,0" />
+        </StackPanel>
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="360" MinWidth="280" /><ColumnDefinition Width="12" /><ColumnDefinition Width="*" MinWidth="380" /></Grid.ColumnDefinitions>
+            <Border Style="{StaticResource PanelSurfaceStyle}">
+                <Grid>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="TEMPLATES" Style="{StaticResource DetailLabelStyle}" />
+                        <TextBox Text="{Binding TemplateName, UpdateSourceTrigger=PropertyChanged}" Tag="Template name" Margin="0,10,0,0" ToolTip="Optional name when saving this message as a local template" automation:AutomationProperties.Name="Message template name" />
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0"><Button Content="Save template" Command="{Binding SaveTemplateCommand}" Style="{StaticResource SecondaryButtonStyle}" /><Button Content="Refresh" Command="{Binding RefreshTemplatesCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="8,0,0,0" /></StackPanel>
+                    </StackPanel>
+                    <ListBox Grid.Row="1" ItemsSource="{Binding Templates}" Margin="0,14,0,0" Background="Transparent" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True" automation:AutomationProperties.Name="Saved message templates">
+                        <ListBox.ItemContainerStyle><StaticResource ResourceKey="DataRowContainerStyle" /></ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate><DataTemplate><StackPanel Margin="8"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" /><TextBlock Text="{Binding Description}" Style="{StaticResource MutedTextStyle}" TextTrimming="CharacterEllipsis" /></StackPanel></DataTemplate></ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+            <GridSplitter Grid.Column="1" Width="12" HorizontalAlignment="Stretch" Background="Transparent" ShowsPreview="True" />
+            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <Border Style="{StaticResource PanelSurfaceStyle}" Padding="18">
+                        <StackPanel>
+                            <TextBlock Text="DESTINATION" Style="{StaticResource DetailLabelStyle}" />
+                            <ComboBox ItemsSource="{Binding DestinationModes}" SelectedItem="{Binding DestinationMode}" Margin="0,10,0,0" automation:AutomationProperties.Name="Message destination mode" />
+                            <ComboBox ItemsSource="{Binding Channels}" SelectedItem="{Binding SelectedChannel}" DisplayMemberPath="Name" Margin="0,8,0,0" Visibility="{Binding IsChannelDestination, Converter={StaticResource BooleanToVisibilityConverter}}" Tag="Select a channel" automation:AutomationProperties.Name="Message channel destination" />
+                            <ComboBox ItemsSource="{Binding Members}" SelectedItem="{Binding SelectedMember}" DisplayMemberPath="DisplayName" Margin="0,8,0,0" Visibility="{Binding IsDirectMessageDestination, Converter={StaticResource BooleanToVisibilityConverter}}" Tag="Select one member" automation:AutomationProperties.Name="Individual DM recipient" />
+                            <TextBlock Text="{Binding ContextMessage}" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,10,0,0" />
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource PanelSurfaceStyle}" Padding="18" Margin="0,12,0,0">
+                        <StackPanel>
+                            <TextBlock Text="MESSAGE" Style="{StaticResource DetailLabelStyle}" />
+                            <TextBox Text="{Binding MessageBody, UpdateSourceTrigger=PropertyChanged}" Tag="Write a message" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="130" MaxHeight="300" VerticalScrollBarVisibility="Auto" Margin="0,10,0,0" automation:AutomationProperties.Name="Message body" />
+                            <TextBlock Text="{Binding CharacterUsage}" Style="{StaticResource MutedTextStyle}" HorizontalAlignment="Right" Margin="0,4,0,0" />
+                            <CheckBox Content="Include an embed" IsChecked="{Binding IncludeEmbed}" Margin="0,10,0,0" automation:AutomationProperties.Name="Include rich embed" />
+                            <StackPanel Visibility="{Binding IncludeEmbed, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,8,0,0">
+                                <TextBox Text="{Binding EmbedTitle, UpdateSourceTrigger=PropertyChanged}" Tag="Embed title (optional)" automation:AutomationProperties.Name="Embed title" />
+                                <TextBox Text="{Binding EmbedDescription, UpdateSourceTrigger=PropertyChanged}" Tag="Embed description (optional)" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="72" Margin="0,8,0,0" automation:AutomationProperties.Name="Embed description" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,14,0,0"><Button Content="Generate preview" Command="{Binding GeneratePreviewCommand}" Style="{StaticResource PrimaryButtonStyle}" automation:AutomationProperties.Name="Generate message preview" /><Button Content="Send one message" Command="{Binding SendCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="8,0,0,0" automation:AutomationProperties.Name="Preview and confirm one message delivery" /></StackPanel>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource PanelSurfaceStyle}" Padding="18" Margin="0,12,0,0">
+                        <StackPanel>
+                            <TextBlock Text="APPROXIMATE DELIVERY PREVIEW" Style="{StaticResource DetailLabelStyle}" />
+                            <TextBlock Text="{Binding Preview.ApproximationLabel}" Style="{StaticResource MutedTextStyle}" Margin="0,6,0,0" />
+                            <TextBlock Text="{Binding Preview.Plan.Content.Body}" TextWrapping="Wrap" Margin="0,10,0,0" />
+                            <TextBlock Text="{Binding Preview.Plan.Destination.ChannelName}" Style="{StaticResource SecondaryTextStyle}" Margin="0,8,0,0" />
+                            <ItemsControl ItemsSource="{Binding PreviewWarnings}" Margin="0,8,0,0"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                            <ItemsControl ItemsSource="{Binding ValidationErrors}" Margin="0,8,0,0"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                            <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</UserControl>

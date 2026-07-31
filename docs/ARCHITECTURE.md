@@ -446,6 +446,30 @@ tooltips, automation names, trimming, wrapping, scrolling, loading/empty/limited
 partial/error states, and retry controls. No view embeds raw foreground/background
 colors.
 
+## Phase 5A messaging and automation safety boundary
+
+The messaging UI cannot call Discord.Net directly. It constructs immutable
+`MessageDraft` and `MessageOperationPlan` records, then delegates to a single
+`IDiscordMessageWriter` boundary owned by the connection manager. Preflight runs again
+immediately before that boundary and blocks disconnected bots, stale destinations,
+unknown/denied channel permissions, unavailable recipients, and unsupported target
+types. A delivery attempt has one bounded retry only for explicitly retryable and
+non-uncertain failures; uncertain outcomes are never retried automatically.
+
+`AllowedMentions.None` is applied to all current Discord writes. Broad mention-like
+content therefore receives an additional typed confirmation but is still sent with
+Discord mention parsing disabled. Template rendering uses only an explicit variables
+dictionary and inserts a zero-width separator after member-controlled `@` characters.
+
+Schema 5 adds versioned message templates, scheduled-message definitions and unique
+occurrences, versioned automation rules, unique automation executions, circuit-breaker
+state, and delivery history. Delivery history stores operation/correlation IDs,
+destination IDs, safe state/failure metadata, and timestamps only; message content and
+template values are never stored. Scheduled delivery and join automation execution are
+not yet active: scheduled recurrence is calculation-only and automation remains
+draft/preflight-only until a later release provides an explicit enablement workflow and
+event subscriber.
+
 ## SQLite, auditing, retention, and privacy
 
 SQLite schema 4 is one backward-compatible transaction over schema 3. It preserves

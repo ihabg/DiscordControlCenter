@@ -1,9 +1,11 @@
 using DiscordControlCenter.Application.Bots;
 using DiscordControlCenter.Application.Explorer;
+using DiscordControlCenter.Application.Messaging;
 using DiscordControlCenter.Application.Operations;
 using DiscordControlCenter.Core.Bots;
 using DiscordControlCenter.Core.Explorer;
 using DiscordControlCenter.Core.Operations;
+using DiscordControlCenter.Core.Messaging;
 using DiscordControlCenter.Core.Security;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -174,6 +176,16 @@ public sealed class BotConnectionManagerTests
             CancellationToken cancellationToken) =>
             UnsupportedWriteAsync();
 
+        public Task<MessageWriteOutcome> SendChannelMessageAsync(
+            MessageOperationPlan plan,
+            CancellationToken cancellationToken) =>
+            UnsupportedMessageWriteAsync();
+
+        public Task<MessageWriteOutcome> SendDirectMessageAsync(
+            MessageOperationPlan plan,
+            CancellationToken cancellationToken) =>
+            UnsupportedMessageWriteAsync();
+
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
         private static Task<ChannelWriteOutcome> UnsupportedWriteAsync() =>
@@ -183,5 +195,17 @@ public sealed class BotConnectionManagerTests
                     null,
                     null,
                     OperationOutcomeCertainty.KnownFailed));
+
+        private static Task<MessageWriteOutcome> UnsupportedMessageWriteAsync() =>
+            Task.FromResult(
+                new MessageWriteOutcome(
+                    false,
+                    null,
+                    new MessageDeliveryFailure(
+                        MessageDeliveryFailureKind.Validation,
+                        "UNSUPPORTED",
+                        "Unsupported by the test client.",
+                        false,
+                        false)));
     }
 }
