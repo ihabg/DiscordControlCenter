@@ -93,6 +93,7 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
     public ObservableCollection<string> ValidationErrors { get; } = [];
     public ObservableCollection<string> PreviewWarnings { get; } = [];
     public ObservableCollection<ScheduledApprovalListItem> Approvals { get; } = [];
+    public ObservableCollection<string> ApprovalPreflightChecks { get; } = [];
     public Array DestinationModes => _destinationModes;
 
     public MessageDestinationKind DestinationMode
@@ -276,11 +277,15 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
 
     private void RefreshApprovalPreflight()
     {
+        ApprovalPreflightChecks.Clear();
         if (ApprovalDetails?.ImmutableContent is null) { ApprovalPreflightSummary = "Current status cannot be checked until immutable details are available."; return; }
         var draft = new MessageDraft(Guid.NewGuid(), ApprovalDetails.Snapshot.BotProfileId, ApprovalDetails.Snapshot.Destination, ApprovalDetails.ImmutableContent, ImmutableArray<MessageAttachmentReference>.Empty, null, DateTimeOffset.UtcNow);
         var plan = _planner.Build(draft, MessageOperationKind.ScheduledChannelMessage).Plan;
         var check = plan is null ? null : _messagePreflight.Validate(plan);
         ApprovalPreflightSummary = check is null ? "The immutable message no longer meets delivery limits." : check.IsAllowed ? "Allowed — current Discord checks passed." : string.Join(" ", check.Issues.Select(issue => issue.Message));
+        ApprovalPreflightChecks.Add(ApprovalDetails.Compatibility is SnapshotCompatibility.Supported or SnapshotCompatibility.SupportedLegacy ? "Snapshot compatibility — Allowed" : "Snapshot compatibility — Blocked");
+        foreach (var issue in check?.Issues ?? []) ApprovalPreflightChecks.Add($"Blocked — {issue.Message}");
+        if (check?.IsAllowed == true) { ApprovalPreflightChecks.Add("Bot connection, destination, and required permissions — Allowed"); ApprovalPreflightChecks.Add(ApprovalDetails.ImmutableContent.Embed is null ? "Embed Links — Not required" : "Embed Links — Allowed"); }
         NotifyApprovalCommands();
     }
 

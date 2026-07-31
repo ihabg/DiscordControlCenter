@@ -83,6 +83,13 @@
                             <TextBlock Text="{Binding AllowedMentionSummary}" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" Margin="0,8,0,0" />
                         </StackPanel>
                     </Border>
+                    <Border Style="{StaticResource PanelSurfaceStyle}" Padding="18" Margin="0,12,0,0">
+                        <StackPanel>
+                            <TextBlock Text="CURRENT DISCORD SENDABILITY" Style="{StaticResource DetailLabelStyle}" />
+                            <TextBlock Text="{Binding ApprovalPreflightSummary}" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                            <ItemsControl ItemsSource="{Binding ApprovalPreflightChecks}" Margin="0,8,0,0"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" Margin="0,2,0,0" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
             </ScrollViewer>
         </Grid>
