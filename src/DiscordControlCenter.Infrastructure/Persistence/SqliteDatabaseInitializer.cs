@@ -9,7 +9,7 @@ public sealed class SqliteDatabaseInitializer(
     SqliteConnectionFactory connectionFactory,
     ILogger<SqliteDatabaseInitializer> logger) : IDatabaseInitializer
 {
-    private const int CurrentSchemaVersion = 5;
+    private const int CurrentSchemaVersion = 6;
 
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
@@ -362,6 +362,9 @@ public sealed class SqliteDatabaseInitializer(
             await phase5aMigrationCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
+        await EnsureColumnAsync(connection, transaction, "ScheduledMessageOccurrences", "ImmutableDeliverySnapshotJson", "TEXT NULL", cancellationToken).ConfigureAwait(false);
+        await EnsureColumnAsync(connection, transaction, "ScheduledMessageOccurrences", "ManualDecision", "TEXT NULL", cancellationToken).ConfigureAwait(false);
+
         await BackfillBackupCatalogAsync(
                 connection,
                 transaction,
@@ -389,6 +392,29 @@ public sealed class SqliteDatabaseInitializer(
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         DatabaseReadyLog(logger, CurrentSchemaVersion, null);
+    }
+
+    private static async Task EnsureColumnAsync(
+        Microsoft.Data.Sqlite.SqliteConnection connection,
+        Microsoft.Data.Sqlite.SqliteTransaction transaction,
+        string table,
+        string column,
+        string declaration,
+        CancellationToken cancellationToken)
+    {
+        await using var probe = connection.CreateCommand();
+        probe.Transaction = transaction;
+        probe.CommandText = $"PRAGMA table_info({table});";
+        await using var reader = await probe.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase)) return;
+        }
+
+        await using var alter = connection.CreateCommand();
+        alter.Transaction = transaction;
+        alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {declaration};";
+        await alter.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task BackfillBackupCatalogAsync(

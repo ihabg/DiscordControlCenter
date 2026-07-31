@@ -71,12 +71,27 @@ public sealed class MessagingSafetyTests
         var definition = new ScheduledMessageDefinition(
             Guid.NewGuid(), Guid.NewGuid(), MessageDestination.Channel(1, "Test", 2, "welcome"), null,
             new MessageContent("Scheduled", null, AllowedMentionPolicy.None), ScheduledMessageRecurrence.Daily,
-            TimeOnly.FromDateTime(now.DateTime), TimeZoneInfo.Utc.Id, ImmutableArray<DayOfWeek>.Empty,
+            TimeOnly.FromDateTime(now.AddHours(-1).DateTime), TimeZoneInfo.Utc.Id, ImmutableArray<DayOfWeek>.Empty,
             now.AddDays(-2), null, true, MissedOccurrencePolicy.Skip, 0, now.AddDays(-2), now);
 
         var due = new ScheduledMessageService().GetDueOccurrences(definition, now);
 
         Assert.Empty(due);
+    }
+
+    [Fact]
+    public void SchedulerReturnsTheCurrentDueOccurrenceWithoutReplayingOlderOnes()
+    {
+        var now = new DateTimeOffset(2026, 7, 31, 12, 0, 20, TimeSpan.Zero);
+        var definition = new ScheduledMessageDefinition(
+            Guid.NewGuid(), Guid.NewGuid(), MessageDestination.Channel(1, "Test", 2, "welcome"), null,
+            new MessageContent("Scheduled", null, AllowedMentionPolicy.None), ScheduledMessageRecurrence.Daily,
+            new TimeOnly(12, 0), TimeZoneInfo.Utc.Id, ImmutableArray<DayOfWeek>.Empty,
+            now.AddDays(-4), null, true, MissedOccurrencePolicy.Skip, 0, now.AddDays(-2), null);
+
+        var due = new ScheduledMessageService().GetDueOccurrences(definition, now);
+
+        Assert.Equal([now.Date], due.Select(item => item.Date).ToArray());
     }
 
     [Fact]

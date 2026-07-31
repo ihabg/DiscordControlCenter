@@ -27,7 +27,9 @@ public enum MessageOperationState
     Failed,
     Cancelled,
     Uncertain,
-    Skipped
+    Skipped,
+    PendingApproval,
+    Archived
 }
 
 public enum MessageDeliveryFailureKind
@@ -279,6 +281,33 @@ public sealed record ScheduledMessageDefinition(
     int MaximumRetryCount,
     DateTimeOffset? LastRunAt,
     DateTimeOffset? NextRunAt);
+
+public sealed record ScheduledMessageOccurrence(
+    Guid Id,
+    Guid ScheduledMessageId,
+    DateTimeOffset OccurrenceAt,
+    MessageOperationState State,
+    Guid CorrelationId,
+    DateTimeOffset? FinishedAt,
+    string? SafeFailureCode)
+{
+    public string? ImmutableDeliverySnapshotJson { get; init; }
+    public string? ManualDecision { get; init; }
+}
+
+public sealed record ScheduledMessageApproval(ScheduledMessageOccurrence Occurrence, ScheduledMessageDefinition Snapshot)
+{
+    public MessageContent? ImmutableContent { get; init; }
+    public int? TemplateVersion { get; init; }
+}
+
+public sealed record ScheduledDeliverySnapshot(
+    int SchemaVersion,
+    ScheduledMessageDefinition Schedule,
+    MessageContent Content,
+    Guid? TemplateId,
+    int? TemplateVersion,
+    DateTimeOffset ReservedAt);
 
 public sealed record AutomationCondition(
     Guid ConditionId,

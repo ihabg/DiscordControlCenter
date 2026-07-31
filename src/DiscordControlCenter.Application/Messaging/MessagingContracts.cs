@@ -59,4 +59,5 @@ public interface ITemplateRenderer
 public interface IScheduledMessageService
 {
     IReadOnlyList<DateTimeOffset> GetDueOccurrences(ScheduledMessageDefinition definition, DateTimeOffset now);
+    DateTimeOffset? GetNextOccurrence(ScheduledMessageDefinition definition, DateTimeOffset now);
 }

@@ -250,3 +250,132 @@ public sealed class SqliteDeliveryHistoryRepository(SqliteConnectionFactory conn
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 }
+
+public sealed class SqliteScheduledMessageRepository(SqliteConnectionFactory connectionFactory) : IScheduledMessageRepository
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    public async Task<IReadOnlyList<ScheduledMessageDefinition>> ListEnabledAsync(CancellationToken cancellationToken)
+    {
+        var result = new List<ScheduledMessageDefinition>();
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT DefinitionJson FROM ScheduledMessages WHERE IsEnabled = 1 ORDER BY UpdatedAt ASC LIMIT 500;";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            result.Add(JsonSerializer.Deserialize<ScheduledMessageDefinition>(reader.GetString(0), JsonOptions)
+                ?? throw new InvalidOperationException("Scheduled message definition is invalid."));
+        }
+
+        return result;
+    }
+
+    public async Task SaveAsync(ScheduledMessageDefinition definition, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            INSERT INTO ScheduledMessages (Id, BotProfileId, ServerId, IsEnabled, DefinitionJson, CreatedAt, UpdatedAt)
+            VALUES ($id, $botId, $serverId, $enabled, $definition, $createdAt, $updatedAt)
+            ON CONFLICT(Id) DO UPDATE SET IsEnabled = excluded.IsEnabled, DefinitionJson = excluded.DefinitionJson, UpdatedAt = excluded.UpdatedAt;
+            """;
+        command.Parameters.AddWithValue("$id", definition.Id.ToString("D"));
+        command.Parameters.AddWithValue("$botId", definition.BotProfileId.ToString("D"));
+        command.Parameters.AddWithValue("$serverId", definition.Destination.ServerId.ToString(CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$enabled", definition.IsEnabled ? 1 : 0);
+        command.Parameters.AddWithValue("$definition", JsonSerializer.Serialize(definition, JsonOptions));
+        command.Parameters.AddWithValue("$createdAt", definition.StartAt.ToString("O"));
+        command.Parameters.AddWithValue("$updatedAt", DateTimeOffset.UtcNow.ToString("O"));
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<bool> TryReserveOccurrenceAsync(ScheduledMessageOccurrence occurrence, CancellationToken cancellationToken)
+    {
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            "INSERT OR IGNORE INTO ScheduledMessageOccurrences (OccurrenceId, ScheduledMessageId, OccurrenceAt, State, CorrelationId, FinishedAt, SafeFailureCode, ImmutableDeliverySnapshotJson, ManualDecision) VALUES ($id, $scheduleId, $at, $state, $correlationId, NULL, NULL, $snapshot, $decision);";
+        command.Parameters.AddWithValue("$id", occurrence.Id.ToString("D"));
+        command.Parameters.AddWithValue("$scheduleId", occurrence.ScheduledMessageId.ToString("D"));
+        command.Parameters.AddWithValue("$at", occurrence.OccurrenceAt.ToString("O"));
+        command.Parameters.AddWithValue("$state", occurrence.State.ToString());
+        command.Parameters.AddWithValue("$correlationId", occurrence.CorrelationId.ToString("D"));
+        command.Parameters.AddWithValue("$snapshot", occurrence.ImmutableDeliverySnapshotJson ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$decision", occurrence.ManualDecision ?? (object)DBNull.Value);
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
+    }
+
+    public async Task CompleteOccurrenceAsync(ScheduledMessageOccurrence occurrence, CancellationToken cancellationToken)
+    {
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE ScheduledMessageOccurrences SET State = $state, FinishedAt = $finishedAt, SafeFailureCode = $failure, ManualDecision = $decision WHERE OccurrenceId = $id AND State = 'Delivering';";
+        command.Parameters.AddWithValue("$id", occurrence.Id.ToString("D"));
+        command.Parameters.AddWithValue("$state", occurrence.State.ToString());
+        command.Parameters.AddWithValue("$finishedAt", occurrence.FinishedAt?.ToString("O") ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$failure", occurrence.SafeFailureCode ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$decision", occurrence.ManualDecision ?? (object)DBNull.Value);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<ScheduledMessageApproval>> ListPendingApprovalsAsync(Guid? botProfileId, ulong? serverId, CancellationToken cancellationToken)
+    {
+        var results = new List<ScheduledMessageApproval>();
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT o.OccurrenceId, o.ScheduledMessageId, o.OccurrenceAt, o.State, o.CorrelationId, o.FinishedAt, o.SafeFailureCode, o.ImmutableDeliverySnapshotJson, o.ManualDecision
+            FROM ScheduledMessageOccurrences o INNER JOIN ScheduledMessages s ON s.Id = o.ScheduledMessageId
+            WHERE o.State = 'PendingApproval' AND ($botId IS NULL OR s.BotProfileId = $botId) AND ($serverId IS NULL OR s.ServerId = $serverId)
+            ORDER BY o.OccurrenceAt ASC LIMIT 200;
+            """;
+        command.Parameters.AddWithValue("$botId", botProfileId?.ToString("D") ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$serverId", serverId?.ToString(CultureInfo.InvariantCulture) ?? (object)DBNull.Value);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) results.Add(ReadApproval(reader));
+        return results;
+    }
+
+    public async Task<ScheduledMessageApproval?> GetApprovalAsync(Guid occurrenceId, CancellationToken cancellationToken)
+    {
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT OccurrenceId, ScheduledMessageId, OccurrenceAt, State, CorrelationId, FinishedAt, SafeFailureCode, ImmutableDeliverySnapshotJson, ManualDecision FROM ScheduledMessageOccurrences WHERE OccurrenceId = $id;";
+        command.Parameters.AddWithValue("$id", occurrenceId.ToString("D"));
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? ReadApproval(reader) : null;
+    }
+
+    public async Task<bool> TryClaimApprovalAsync(Guid occurrenceId, Guid correlationId, CancellationToken cancellationToken)
+    {
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE ScheduledMessageOccurrences SET State = 'ApprovalProcessing', CorrelationId = $correlationId, ManualDecision = 'Approved' WHERE OccurrenceId = $id AND State = 'PendingApproval';";
+        command.Parameters.AddWithValue("$id", occurrenceId.ToString("D"));
+        command.Parameters.AddWithValue("$correlationId", correlationId.ToString("D"));
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
+    }
+
+    public async Task<bool> TryDecideApprovalAsync(Guid occurrenceId, MessageOperationState terminalState, string decision, string? safeFailureCode, CancellationToken cancellationToken)
+    {
+        if (terminalState is not (MessageOperationState.Delivered or MessageOperationState.Failed or MessageOperationState.Uncertain or MessageOperationState.Skipped or MessageOperationState.Archived)) throw new ArgumentOutOfRangeException(nameof(terminalState));
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        var expected = terminalState is MessageOperationState.Skipped or MessageOperationState.Archived ? "PendingApproval" : "ApprovalProcessing";
+        command.CommandText = "UPDATE ScheduledMessageOccurrences SET State = $state, ManualDecision = $decision, SafeFailureCode = $failure, FinishedAt = $finishedAt WHERE OccurrenceId = $id AND State = $expected;";
+        command.Parameters.AddWithValue("$id", occurrenceId.ToString("D")); command.Parameters.AddWithValue("$state", terminalState.ToString()); command.Parameters.AddWithValue("$decision", decision); command.Parameters.AddWithValue("$failure", safeFailureCode ?? (object)DBNull.Value); command.Parameters.AddWithValue("$finishedAt", DateTimeOffset.UtcNow.ToString("O")); command.Parameters.AddWithValue("$expected", expected);
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
+    }
+
+    private static ScheduledMessageApproval ReadApproval(Microsoft.Data.Sqlite.SqliteDataReader reader)
+    {
+        var snapshotJson = reader.IsDBNull(7) ? throw new InvalidOperationException("Approval snapshot is unavailable.") : reader.GetString(7);
+        var envelope = JsonSerializer.Deserialize<ScheduledDeliverySnapshot>(snapshotJson, JsonOptions);
+        var snapshot = envelope?.Schedule ?? JsonSerializer.Deserialize<ScheduledMessageDefinition>(snapshotJson, JsonOptions) ?? throw new InvalidOperationException("Approval snapshot is invalid.");
+        return new ScheduledMessageApproval(new ScheduledMessageOccurrence(Guid.Parse(reader.GetString(0)), Guid.Parse(reader.GetString(1)), DateTimeOffset.Parse(reader.GetString(2), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), Enum.Parse<MessageOperationState>(reader.GetString(3)), Guid.Parse(reader.GetString(4)), reader.IsDBNull(5) ? null : DateTimeOffset.Parse(reader.GetString(5), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), reader.IsDBNull(6) ? null : reader.GetString(6)) { ImmutableDeliverySnapshotJson = snapshotJson, ManualDecision = reader.IsDBNull(8) ? null : reader.GetString(8) }, snapshot) { ImmutableContent = envelope?.Content ?? snapshot.InlineContent, TemplateVersion = envelope?.TemplateVersion };
+    }
+}

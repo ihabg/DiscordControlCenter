@@ -113,6 +113,9 @@ public partial class App : System.Windows.Application
                         services.AddSingleton<IMessageDeliveryExecutor, MessageDeliveryExecutor>();
                         services.AddSingleton<IMessageDeliveryDialogService, MessageDeliveryDialogService>();
                         services.AddSingleton<IScheduledMessageService, ScheduledMessageService>();
+                        services.AddSingleton<IScheduledMessageRepository, SqliteScheduledMessageRepository>();
+                        services.AddSingleton<IScheduledMessageScheduler, ScheduledMessageScheduler>();
+                        services.AddSingleton<IScheduledApprovalService, ScheduledApprovalService>();
                         services.AddSingleton<IAutomationRulePreflightService, AutomationRulePreflightService>();
                         services.AddSingleton<IBotProfileService, BotProfileService>();
                         services.AddSingleton<IUserDialogService, WpfUserDialogService>();
@@ -147,6 +150,9 @@ public partial class App : System.Windows.Application
                 .InspectInterruptedAsync(CancellationToken.None);
             await _host.Services
                 .GetRequiredService<IChannelOperationScheduler>()
+                .InitializeAsync(CancellationToken.None);
+            await _host.Services
+                .GetRequiredService<IScheduledMessageScheduler>()
                 .InitializeAsync(CancellationToken.None);
 
             var window = _host.Services.GetRequiredService<MainWindow>();
