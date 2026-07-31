@@ -75,6 +75,14 @@
                             </Grid>
                         </Grid>
                     </Border>
+                    <Border Style="{StaticResource PanelSurfaceStyle}" Padding="18" Margin="0,12,0,0">
+                        <StackPanel>
+                            <TextBlock Text="IMMUTABLE APPROVAL USAGE" Style="{StaticResource DetailLabelStyle}" />
+                            <TextBlock Text="{Binding ApprovalMessageUsage}" Style="{StaticResource SecondaryTextStyle}" Margin="0,8,0,0" />
+                            <TextBlock Text="{Binding ApprovalEmbedUsage}" Style="{StaticResource SecondaryTextStyle}" Margin="0,4,0,0" />
+                            <TextBlock Text="{Binding AllowedMentionSummary}" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
             </ScrollViewer>
         </Grid>
