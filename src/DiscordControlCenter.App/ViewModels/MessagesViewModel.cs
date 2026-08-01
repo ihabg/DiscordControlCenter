@@ -30,6 +30,8 @@ public sealed record ApprovalChoice<T>(string Label, T Value, bool IsAny = false
     public override string ToString() => Label;
 }
 
+public sealed record MessagesSectionItem(string Label, string AutomationId);
+
 public sealed class MessagesViewModel : ObservableObject, IDisposable
 {
     private readonly IBotExplorerService _explorer;
@@ -102,6 +104,7 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
     private bool _historyContentIsOpen;
     private int _historyDetailVersion;
     private readonly Array _destinationModes = Enum.GetValues<MessageDestinationKind>();
+    private string _activeMessagesSection = "Compose";
 
     public MessagesViewModel(
         IBotExplorerService explorer,
@@ -145,6 +148,7 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
         NextHistoryPageCommand = new AsyncRelayCommand(_ => NavigateHistoryPageAsync(HistoryPageNumber + 1, _), () => CanGoToNextHistoryPage, OnCommandError);
         FirstHistoryPageCommand = new AsyncRelayCommand(_ => NavigateHistoryPageAsync(1, _), () => CanGoToPreviousHistoryPage, OnCommandError);
         LastHistoryPageCommand = new AsyncRelayCommand(_ => NavigateHistoryPageAsync(HistoryTotalPages, _), () => CanGoToNextHistoryPage, OnCommandError);
+        NavigateMessagesSectionCommand = new RelayCommand(NavigateMessagesSection);
         _selectedApprovalState = ApprovalStates.First(choice => choice.Value == MessageOperationState.PendingApproval);
         _selectedApprovalSort = ApprovalSorts.First(choice => choice.Value == ScheduledApprovalSort.DueAscending);
         _selectedHistorySort = HistorySorts.First(choice => choice.Value == ScheduledApprovalSort.DecisionNewest);
@@ -173,6 +177,11 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
     public IReadOnlyList<ApprovalChoice<ScheduledApprovalSort>> ApprovalSorts { get; } = [new("Due time — oldest first", ScheduledApprovalSort.DueAscending), new("Due time — newest first", ScheduledApprovalSort.DueDescending), new("Reservation time — newest first", ScheduledApprovalSort.NewestReservation), new("Reservation time — oldest first", ScheduledApprovalSort.OldestReservation), new("Schedule name", ScheduledApprovalSort.ScheduleName), new("Server name", ScheduledApprovalSort.ServerName), new("State", ScheduledApprovalSort.State), new("Decision time — newest first", ScheduledApprovalSort.DecisionNewest)];
     public IReadOnlyList<ApprovalChoice<ScheduledApprovalSort>> HistorySorts { get; } = [new("Decision time — newest first", ScheduledApprovalSort.DecisionNewest), new("Decision time — oldest first", ScheduledApprovalSort.DecisionOldest), new("Due time — newest first", ScheduledApprovalSort.DueDescending), new("Due time — oldest first", ScheduledApprovalSort.DueAscending), new("Reservation time — newest first", ScheduledApprovalSort.NewestReservation), new("Reservation time — oldest first", ScheduledApprovalSort.OldestReservation), new("Schedule name", ScheduledApprovalSort.ScheduleName), new("Server name", ScheduledApprovalSort.ServerName), new("Terminal state", ScheduledApprovalSort.State)];
     public IReadOnlyList<int> ApprovalPageSizes { get; } = [10, 25, 50, 100, 200];
+    public IReadOnlyList<MessagesSectionItem> MessagesSections { get; } =
+    [new("Compose", "DiscordControlCenter.Messages.Compose"), new("Templates", "DiscordControlCenter.Messages.Templates"), new("Scheduled messages", "DiscordControlCenter.Messages.Scheduled"), new("Manual approvals", "DiscordControlCenter.Messages.ManualApprovals"), new("Delivery history", "DiscordControlCenter.Messages.DeliveryHistory")];
+    public RelayCommand NavigateMessagesSectionCommand { get; }
+    public string ActiveMessagesSection { get => _activeMessagesSection; private set => SetProperty(ref _activeMessagesSection, value); }
+    public event EventHandler<string>? MessagesSectionRequested;
 
     public MessageDestinationKind DestinationMode
     {
@@ -316,6 +325,13 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
     }
 
     public async Task InitializeAsync(CancellationToken cancellationToken) { await LoadTemplatesAsync(cancellationToken).ConfigureAwait(false); await LoadApprovalSchedulesAsync(cancellationToken).ConfigureAwait(false); await LoadApprovalsAsync(cancellationToken).ConfigureAwait(false); await LoadHistoryAsync(cancellationToken).ConfigureAwait(false); }
+
+    private void NavigateMessagesSection(object? parameter)
+    {
+        var section = parameter as string ?? "Compose";
+        ActiveMessagesSection = section;
+        MessagesSectionRequested?.Invoke(this, section);
+    }
 
     public void Dispose()
     {

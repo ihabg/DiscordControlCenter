@@ -12,7 +12,7 @@ public sealed class HarnessScenarioTests
         var first = HarnessScenario.CreateAll();
         var second = HarnessScenario.CreateAll();
 
-        Assert.Equal(18, first.Count);
+        Assert.Equal(44, first.Count);
         Assert.Equal(first.Select(item => item.Name), second.Select(item => item.Name));
         Assert.Contains(first, item => item.Kind == HarnessScenarioKind.BroadMention);
         Assert.Contains(first, item => item.Kind == HarnessScenarioKind.Disconnected);
@@ -20,6 +20,11 @@ public sealed class HarnessScenarioTests
         Assert.Contains(first, item => item.Kind == HarnessScenarioKind.Delivered);
         Assert.Contains(first, item => item.Kind == HarnessScenarioKind.Uncertain);
         Assert.Contains(first, item => item.Kind == HarnessScenarioKind.Archived);
+        Assert.Contains(first, item => item.Kind == HarnessScenarioKind.NoBotServerScope);
+        Assert.Contains(first, item => item.Kind == HarnessScenarioKind.ScheduleFaulted);
+        Assert.Contains(first, item => item.Kind == HarnessScenarioKind.ScheduleInvalidTimeZone);
+        Assert.Contains(first, item => item.Kind == HarnessScenarioKind.OccurrenceUncertain);
+        Assert.Contains(first, item => item.Kind == HarnessScenarioKind.ScheduleOccurrenceError);
     }
 
     [Fact]

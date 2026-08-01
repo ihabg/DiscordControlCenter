@@ -22,6 +22,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private readonly OperationCenterViewModel _operations;
     private readonly BackupBrowserViewModel _backups;
     private readonly MessagesViewModel _messages;
+    private readonly ScheduledMessagesViewModel _scheduledMessages;
     private readonly AutomationViewModel _automation;
     private readonly IBotConnectionManager _connectionManager;
     private readonly IBotExplorerService _explorer;
@@ -45,6 +46,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         OperationCenterViewModel operations,
         BackupBrowserViewModel backups,
         MessagesViewModel messages,
+        ScheduledMessagesViewModel scheduledMessages,
         AutomationViewModel automation,
         IBotConnectionManager connectionManager,
         IBotExplorerService explorer,
@@ -61,6 +63,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         _operations = operations;
         _backups = backups;
         _messages = messages;
+        _scheduledMessages = scheduledMessages;
         _automation = automation;
         _connectionManager = connectionManager;
         _explorer = explorer;
@@ -89,6 +92,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         _operations.RegeneratePreviewRequested += OnRegeneratePreviewRequested;
         _channels.OperationQueued += OnChannelOperationQueued;
         _channels.OperationCenterRequested += OnChannelOperationQueued;
+        _messages.MessagesSectionRequested += OnMessagesSectionRequested;
+        _scheduledMessages.MessagesSectionRequested += OnMessagesSectionRequested;
         _connectionManager.StatusChanged += OnConnectionStatusChanged;
         _explorer.CacheChanged += OnExplorerCacheChanged;
     }
@@ -123,6 +128,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             _voice.SetContext(value?.Id, _selectedConnectionState, null);
             _backups.SetContext(value?.Id, null, value?.DisplayName);
             _messages.SetContext(value?.Id, _selectedConnectionState, null);
+            _scheduledMessages.SetContext(value?.Id, value?.DisplayName, null, null);
             _automation.SetContext(value?.Id, _selectedConnectionState, null);
             OnPropertyChanged(nameof(CanBrowseServers));
         }
@@ -151,6 +157,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             _voice.SetServer(value?.Id);
             _backups.SetContext(SelectedBot?.Id, value?.Id, SelectedBot?.DisplayName);
             _messages.SetServer(value?.Id);
+            _scheduledMessages.SetContext(SelectedBot?.Id, SelectedBot?.DisplayName, value?.Id, value?.Name);
             _automation.SetServer(value?.Id);
         }
     }
@@ -191,6 +198,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         _operations.RegeneratePreviewRequested -= OnRegeneratePreviewRequested;
         _channels.OperationQueued -= OnChannelOperationQueued;
         _channels.OperationCenterRequested -= OnChannelOperationQueued;
+        _messages.MessagesSectionRequested -= OnMessagesSectionRequested;
+        _scheduledMessages.MessagesSectionRequested -= OnMessagesSectionRequested;
         _connectionManager.StatusChanged -= OnConnectionStatusChanged;
         _explorer.CacheChanged -= OnExplorerCacheChanged;
         _dashboard.Dispose();
@@ -203,6 +212,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         _operations.Dispose();
         _backups.Dispose();
         _messages.Dispose();
+        _scheduledMessages.Dispose();
         _bots.Dispose();
     }
 
@@ -240,6 +250,20 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         _ = e;
         CurrentTitle = "Channels";
         CurrentPage = _channels;
+    }
+
+    private void OnMessagesSectionRequested(object? sender, string section)
+    {
+        _ = sender;
+        if (string.Equals(section, "Scheduled messages", StringComparison.Ordinal))
+        {
+            CurrentTitle = "Messages / Scheduled messages";
+            CurrentPage = _scheduledMessages;
+            return;
+        }
+
+        CurrentTitle = "Messages";
+        CurrentPage = _messages;
     }
 
     private void OnChannelOperationQueued(object? sender, EventArgs e)

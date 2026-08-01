@@ -284,6 +284,11 @@ public sealed record ScheduledMessageDefinition(
 {
     // Kept separate from immutable outbound content so queue/history rows can remain content-free.
     public string Name { get; init; } = "Untitled schedule";
+
+    // Older saved definitions did not persist an explicit lifecycle.  Keeping this optional
+    // makes the read model backward-compatible while allowing historical states to be shown
+    // faithfully when they are present in saved metadata.
+    public ScheduledMessageLifecycle? SavedLifecycle { get; init; }
 }
 
 public sealed record ScheduledMessageOccurrence(
@@ -387,7 +392,13 @@ public sealed record ScheduledMessageListItem(
     bool HasWarning,
     int Revision,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt)
+{
+    public string LifecycleLabel => ScheduledMessagePresentation.LifecycleLabel(Lifecycle);
+    public string RecurrenceLabel => ScheduledMessagePresentation.RecurrenceLabel(Recurrence);
+    public string MissedPolicyLabel => ScheduledMessagePresentation.MissedPolicyLabel(MissedPolicy);
+    public string WarningLabel => HasWarning ? "Warning needs review" : "No saved warning";
+}
 
 public sealed record ScheduledMessagePage(
     IReadOnlyList<ScheduledMessageListItem> Items,
@@ -397,6 +408,89 @@ public sealed record ScheduledMessagePage(
     DateTimeOffset QueriedAt)
 {
     public int TotalPages => Math.Max(1, (int)Math.Ceiling(TotalCount / (double)PageSize));
+}
+
+public sealed record ScheduledMessageFilterOption<T>(T Value, string Label);
+
+public sealed record ScheduledMessageFilterOptions(
+    IReadOnlyList<ScheduledMessageFilterOption<Guid>> Templates,
+    IReadOnlyList<ScheduledMessageFilterOption<ulong>> Destinations);
+
+public sealed record ScheduledMessageOccurrenceListItem(
+    Guid OccurrenceId,
+    int ScheduleRevision,
+    DateTimeOffset DueAt,
+    DateTimeOffset? ReservedAt,
+    DateTimeOffset? AttemptedAt,
+    DateTimeOffset? CompletedAt,
+    MessageOperationState State,
+    string? SafeFailureCategory,
+    string? ManualDecision,
+    Guid CorrelationId,
+    SnapshotCompatibility SnapshotCompatibility)
+{
+    public string StateLabel => ScheduledMessagePresentation.OccurrenceStateLabel(State);
+    public string ResultLabel => ScheduledMessagePresentation.OccurrenceResultLabel(State, SafeFailureCategory);
+    public string CompatibilityLabel => ScheduledMessagePresentation.CompatibilityLabel(SnapshotCompatibility);
+    public string ManualReviewLabel => State == MessageOperationState.Uncertain ? "Manual review required" : "No manual review required";
+}
+
+public static class ScheduledMessagePresentation
+{
+    public static string LifecycleLabel(ScheduledMessageLifecycle lifecycle) => lifecycle switch
+    {
+        ScheduledMessageLifecycle.Draft => "Draft",
+        ScheduledMessageLifecycle.Enabled => "Enabled",
+        ScheduledMessageLifecycle.Disabled => "Disabled",
+        ScheduledMessageLifecycle.Faulted => "Needs attention",
+        ScheduledMessageLifecycle.Expired => "Expired",
+        ScheduledMessageLifecycle.Archived => "Archived",
+        _ => "Unavailable"
+    };
+
+    public static string RecurrenceLabel(ScheduledMessageRecurrence recurrence) => recurrence switch
+    {
+        ScheduledMessageRecurrence.Once => "One time",
+        ScheduledMessageRecurrence.Daily => "Daily",
+        ScheduledMessageRecurrence.Weekly => "Weekly",
+        _ => "Unavailable"
+    };
+
+    public static string MissedPolicyLabel(MissedOccurrencePolicy policy) => policy switch
+    {
+        MissedOccurrencePolicy.Skip => "Skip missed occurrences",
+        MissedOccurrencePolicy.SendLatestOnly => "Send latest occurrence only",
+        MissedOccurrencePolicy.RequireManualApproval => "Require manual approval",
+        _ => "Unavailable"
+    };
+
+    public static string OccurrenceStateLabel(MessageOperationState state) => state switch
+    {
+        MessageOperationState.Delivered => "Delivered",
+        MessageOperationState.Failed => "Failed",
+        MessageOperationState.PendingApproval => "Pending approval",
+        MessageOperationState.Uncertain => "Outcome uncertain",
+        MessageOperationState.Skipped => "Skipped",
+        MessageOperationState.Archived => "Archived",
+        MessageOperationState.Delivering => "In progress",
+        MessageOperationState.Queued => "Queued",
+        _ => "Not completed"
+    };
+
+    public static string OccurrenceResultLabel(MessageOperationState state, string? failure) =>
+        state == MessageOperationState.Failed && !string.IsNullOrWhiteSpace(failure)
+            ? $"Failed: {failure}"
+            : OccurrenceStateLabel(state);
+
+    public static string CompatibilityLabel(SnapshotCompatibility compatibility) => compatibility switch
+    {
+        SnapshotCompatibility.Supported => "Supported snapshot",
+        SnapshotCompatibility.SupportedLegacy => "Supported legacy snapshot",
+        SnapshotCompatibility.UnsupportedNewerVersion => "Newer snapshot is unavailable",
+        SnapshotCompatibility.Corrupt => "Snapshot data is unavailable",
+        SnapshotCompatibility.MissingRequiredData => "Snapshot data is incomplete",
+        _ => "Snapshot compatibility unavailable"
+    };
 }
 public sealed record ScheduledApprovalListItem(Guid OccurrenceId, Guid ScheduleId, string ScheduleName, Guid BotProfileId, ulong ServerId, string ServerName, ulong? ChannelId, string ChannelName, DateTimeOffset DueAt, string TimeZoneId, DateTimeOffset? ReservedAt, MessageOperationState State, Guid? TemplateId, int? TemplateVersion, bool HasContent, bool HasEmbed, bool HasBroadMentionWarning, int SnapshotSchemaVersion, SnapshotCompatibility Compatibility, Guid CorrelationId, string? SafeFailureCode, DateTimeOffset? DecisionAt)
 {

@@ -302,7 +302,8 @@ public sealed class SqliteScheduledMessageRepository(SqliteConnectionFactory con
               AND ($missedPolicy IS NULL OR json_extract(s.DefinitionJson, '$.missedOccurrencePolicy') = $missedPolicy)
               AND ($createdFrom IS NULL OR s.CreatedAt >= $createdFrom) AND ($createdTo IS NULL OR s.CreatedAt <= $createdTo)
               AND ($nextFrom IS NULL OR json_extract(s.DefinitionJson, '$.nextRunAt') >= $nextFrom) AND ($nextTo IS NULL OR json_extract(s.DefinitionJson, '$.nextRunAt') <= $nextTo)
-              AND ($lifecycle IS NULL OR ($lifecycle = 'Enabled' AND s.IsEnabled = 1 AND (json_extract(s.DefinitionJson, '$.endAt') IS NULL OR json_extract(s.DefinitionJson, '$.endAt') >= $now)) OR ($lifecycle = 'Disabled' AND s.IsEnabled = 0) OR ($lifecycle = 'Expired' AND json_extract(s.DefinitionJson, '$.endAt') IS NOT NULL AND json_extract(s.DefinitionJson, '$.endAt') < $now))
+              AND ($lifecycle IS NULL OR COALESCE(json_extract(s.DefinitionJson, '$.savedLifecycle'), CASE WHEN json_extract(s.DefinitionJson, '$.endAt') IS NOT NULL AND json_extract(s.DefinitionJson, '$.endAt') < $now THEN 'Expired' WHEN s.IsEnabled = 1 THEN 'Enabled' ELSE 'Disabled' END) = $lifecycle)
+              AND ($hasWarning IS NULL OR ($hasWarning = 1 AND (json_extract(s.DefinitionJson, '$.savedLifecycle') = 'Faulted' OR json_extract(s.DefinitionJson, '$.endAt') < $now OR json_extract(s.DefinitionJson, '$.timeZoneId') IS NULL OR (json_extract(s.DefinitionJson, '$.recurrence') = 'Weekly' AND COALESCE(json_array_length(json_extract(s.DefinitionJson, '$.weekdays')), 0) = 0))) OR ($hasWarning = 0 AND NOT (json_extract(s.DefinitionJson, '$.savedLifecycle') = 'Faulted' OR json_extract(s.DefinitionJson, '$.endAt') < $now OR json_extract(s.DefinitionJson, '$.timeZoneId') IS NULL OR (json_extract(s.DefinitionJson, '$.recurrence') = 'Weekly' AND COALESCE(json_array_length(json_extract(s.DefinitionJson, '$.weekdays')), 0) = 0))))
             """;
         await using var count = connection.CreateCommand();
         count.CommandText = $"SELECT COUNT(*) FROM ScheduledMessages s LEFT JOIN MessageTemplates t ON t.Id = json_extract(s.DefinitionJson, '$.templateId') {where};";
@@ -318,12 +319,55 @@ public sealed class SqliteScheduledMessageRepository(SqliteConnectionFactory con
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
             var definition = JsonSerializer.Deserialize<ScheduledMessageDefinition>(reader.GetString(3), JsonOptions) ?? throw new InvalidOperationException("Scheduled message definition is invalid.");
-            var endAt = definition.EndAt;
-            var lifecycle = endAt is not null && endAt < DateTimeOffset.UtcNow ? ScheduledMessageLifecycle.Expired : definition.IsEnabled ? ScheduledMessageLifecycle.Enabled : ScheduledMessageLifecycle.Disabled;
-            items.Add(new ScheduledMessageListItem(definition.Id, reader.GetString(1), lifecycle, reader.GetString(6), definition.Destination.ServerName, definition.Destination.ChannelName ?? "Deleted or unavailable channel", string.IsNullOrWhiteSpace(reader.GetString(7)) ? "Saved message" : reader.GetString(7), definition.Recurrence, definition.TimeZoneId, definition.NextRunAt, definition.LastRunAt, null, definition.MissedOccurrencePolicy, lifecycle is ScheduledMessageLifecycle.Expired, 1, DateTimeOffset.Parse(reader.GetString(4), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), DateTimeOffset.Parse(reader.GetString(5), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)));
+            var lifecycle = definition.SavedLifecycle ?? (definition.EndAt is { } end && end < DateTimeOffset.UtcNow ? ScheduledMessageLifecycle.Expired : definition.IsEnabled ? ScheduledMessageLifecycle.Enabled : ScheduledMessageLifecycle.Disabled);
+            var hasWarning = lifecycle is ScheduledMessageLifecycle.Faulted or ScheduledMessageLifecycle.Expired
+                || string.IsNullOrWhiteSpace(definition.TimeZoneId)
+                || definition.Recurrence == ScheduledMessageRecurrence.Weekly && definition.Weekdays.Length == 0;
+            items.Add(new ScheduledMessageListItem(definition.Id, reader.GetString(1), lifecycle, reader.GetString(6), definition.Destination.ServerName, definition.Destination.ChannelName ?? "Deleted or unavailable channel", string.IsNullOrWhiteSpace(reader.GetString(7)) ? "Deleted or unavailable template" : reader.GetString(7), definition.Recurrence, definition.TimeZoneId, definition.NextRunAt, definition.LastRunAt, null, definition.MissedOccurrencePolicy, hasWarning, 1, DateTimeOffset.Parse(reader.GetString(4), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), DateTimeOffset.Parse(reader.GetString(5), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)));
         }
 
         return new ScheduledMessagePage(items, total, page, query.PageSize, DateTimeOffset.UtcNow);
+    }
+
+    public async Task<ScheduledMessageFilterOptions> GetScheduleFilterOptionsAsync(Guid botProfileId, ulong serverId, CancellationToken cancellationToken)
+    {
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        const string scope = " FROM ScheduledMessages s LEFT JOIN MessageTemplates t ON t.Id = json_extract(s.DefinitionJson, '$.templateId') WHERE s.BotProfileId = $botId AND s.ServerId = $serverId ";
+        var templates = new List<ScheduledMessageFilterOption<Guid>>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT DISTINCT json_extract(s.DefinitionJson, '$.templateId'), COALESCE(t.Name, 'Deleted or unavailable template')" + scope + "AND json_extract(s.DefinitionJson, '$.templateId') IS NOT NULL ORDER BY 2 COLLATE NOCASE;";
+            command.Parameters.AddWithValue("$botId", botProfileId.ToString("D")); command.Parameters.AddWithValue("$serverId", serverId.ToString(CultureInfo.InvariantCulture));
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) if (Guid.TryParse(reader.GetString(0), out var id)) templates.Add(new(id, reader.GetString(1)));
+        }
+        var destinations = new List<ScheduledMessageFilterOption<ulong>>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT DISTINCT json_extract(s.DefinitionJson, '$.destination.channelId'), COALESCE(NULLIF(json_extract(s.DefinitionJson, '$.destination.channelName'), ''), 'Deleted or unavailable channel')" + scope + "AND json_extract(s.DefinitionJson, '$.destination.channelId') IS NOT NULL ORDER BY 2 COLLATE NOCASE;";
+            command.Parameters.AddWithValue("$botId", botProfileId.ToString("D")); command.Parameters.AddWithValue("$serverId", serverId.ToString(CultureInfo.InvariantCulture));
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false) && ulong.TryParse(reader.GetString(0), CultureInfo.InvariantCulture, out var id)) destinations.Add(new(id, reader.GetString(1)));
+        }
+        return new(templates, destinations);
+    }
+
+    public async Task<IReadOnlyList<ScheduledMessageOccurrenceListItem>> ListRecentOccurrencesAsync(Guid botProfileId, ulong serverId, Guid scheduleId, int limit, CancellationToken cancellationToken)
+    {
+        var boundedLimit = Math.Clamp(limit, 1, 50);
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT o.OccurrenceId, o.OccurrenceAt, o.ReservedAt, o.FinishedAt, o.State, o.SafeFailureCode, o.ManualDecision, o.CorrelationId, COALESCE(o.SnapshotCompatibility, 'MissingRequiredData') FROM ScheduledMessageOccurrences o INNER JOIN ScheduledMessages s ON s.Id = o.ScheduledMessageId WHERE s.BotProfileId = $botId AND s.ServerId = $serverId AND o.ScheduledMessageId = $scheduleId ORDER BY o.OccurrenceAt DESC, o.OccurrenceId ASC LIMIT $limit;";
+        command.Parameters.AddWithValue("$botId", botProfileId.ToString("D")); command.Parameters.AddWithValue("$serverId", serverId.ToString(CultureInfo.InvariantCulture)); command.Parameters.AddWithValue("$scheduleId", scheduleId.ToString("D")); command.Parameters.AddWithValue("$limit", boundedLimit);
+        var result = new List<ScheduledMessageOccurrenceListItem>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var state = Enum.TryParse<MessageOperationState>(reader.GetString(4), out var parsedState) ? parsedState : MessageOperationState.Failed;
+            var compatibility = Enum.TryParse<SnapshotCompatibility>(reader.GetString(8), out var parsedCompatibility) ? parsedCompatibility : SnapshotCompatibility.MissingRequiredData;
+            result.Add(new(Guid.Parse(reader.GetString(0)), 1, DateTimeOffset.Parse(reader.GetString(1), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), reader.IsDBNull(2) ? null : DateTimeOffset.Parse(reader.GetString(2), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), null, reader.IsDBNull(3) ? null : DateTimeOffset.Parse(reader.GetString(3), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), state, reader.IsDBNull(5) ? null : reader.GetString(5), reader.IsDBNull(6) ? null : reader.GetString(6), Guid.Parse(reader.GetString(7)), compatibility));
+        }
+        return result;
     }
 
     private static void AddScheduleParameters(Microsoft.Data.Sqlite.SqliteCommand command, ScheduledMessageQuery query)
@@ -336,6 +380,7 @@ public sealed class SqliteScheduledMessageRepository(SqliteConnectionFactory con
         command.Parameters.AddWithValue("$channelId", query.ChannelId?.ToString(CultureInfo.InvariantCulture) ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("$missedPolicy", query.MissedPolicy?.ToString() ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("$lifecycle", query.Lifecycle?.ToString() ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$hasWarning", query.HasWarning is null ? DBNull.Value : query.HasWarning.Value ? 1 : 0);
         command.Parameters.AddWithValue("$createdFrom", query.CreatedFrom?.ToString("O") ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("$createdTo", query.CreatedTo?.ToString("O") ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("$nextFrom", query.NextRunFrom?.ToString("O") ?? (object)DBNull.Value);

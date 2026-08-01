@@ -15,15 +15,35 @@ public sealed class ScheduledMessageQueryService(
         return repository.QuerySchedulesAsync(query with { PageNumber = Math.Max(1, query.PageNumber), PageSize = Math.Clamp(query.PageSize, 1, 200) }, cancellationToken);
     }
 
+    public Task<ScheduledMessageFilterOptions> GetFilterOptionsAsync(Guid botProfileId, ulong serverId, CancellationToken cancellationToken)
+    {
+        if (botProfileId == Guid.Empty) throw new ArgumentException("Select a bot before viewing schedules.", nameof(botProfileId));
+        if (serverId == 0) throw new ArgumentException("Select a server before viewing schedules.", nameof(serverId));
+        return repository.GetScheduleFilterOptionsAsync(botProfileId, serverId, cancellationToken);
+    }
+
     public async Task<ScheduledMessageDetail?> GetDetailAsync(Guid botProfileId, ulong serverId, Guid scheduleId, CancellationToken cancellationToken)
     {
         if (botProfileId == Guid.Empty || serverId == 0 || scheduleId == Guid.Empty) return null;
         var definition = await repository.GetScheduleAsync(scheduleId, cancellationToken).ConfigureAwait(false);
         if (definition is null || definition.BotProfileId != botProfileId || definition.Destination.ServerId != serverId) return null;
-        var lifecycle = definition.EndAt is { } end && end < DateTimeOffset.UtcNow ? ScheduledMessageLifecycle.Expired : definition.IsEnabled ? ScheduledMessageLifecycle.Enabled : ScheduledMessageLifecycle.Disabled;
+        var lifecycle = ResolveLifecycle(definition);
         var zone = TryGetZone(definition.TimeZoneId, out var warning);
         return new ScheduledMessageDetail(definition.Id, definition.Name, lifecycle, LifecycleExplanation(lifecycle), RecurrenceSummary(definition, recurrence), zone, warning, definition);
     }
+
+    public async Task<ScheduledMessageOccurrencePage> GetRecentOccurrencesAsync(Guid botProfileId, ulong serverId, Guid scheduleId, int limit, CancellationToken cancellationToken)
+    {
+        if (botProfileId == Guid.Empty || serverId == 0 || scheduleId == Guid.Empty) return new([], Math.Clamp(limit, 1, 50));
+        var boundedLimit = Math.Clamp(limit, 1, 50);
+        var items = await repository.ListRecentOccurrencesAsync(botProfileId, serverId, scheduleId, boundedLimit, cancellationToken).ConfigureAwait(false);
+        return new ScheduledMessageOccurrencePage(items, boundedLimit);
+    }
+
+    internal static ScheduledMessageLifecycle ResolveLifecycle(ScheduledMessageDefinition definition) =>
+        definition.SavedLifecycle ?? (definition.EndAt is { } end && end < DateTimeOffset.UtcNow
+            ? ScheduledMessageLifecycle.Expired
+            : definition.IsEnabled ? ScheduledMessageLifecycle.Enabled : ScheduledMessageLifecycle.Disabled);
 
     internal static string LifecycleExplanation(ScheduledMessageLifecycle lifecycle) => lifecycle switch
     {

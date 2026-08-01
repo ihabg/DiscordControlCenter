@@ -1,0 +1,86 @@
+<UserControl x:Class="DiscordControlCenter.App.Views.ScheduledMessagesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+             automation:AutomationProperties.Name="Scheduled messages"
+             automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages"
+             SizeChanged="OnSizeChanged">
+    <Grid Margin="20" x:Name="LayoutRoot">
+        <Grid.ColumnDefinitions><ColumnDefinition x:Name="ListColumn" Width="1.1*" MinWidth="320"/><ColumnDefinition x:Name="SplitterColumn" Width="12"/><ColumnDefinition x:Name="DetailColumn" Width="*" MinWidth="300"/></Grid.ColumnDefinitions>
+        <Grid.RowDefinitions><RowDefinition x:Name="ListRow" Height="*"/><RowDefinition x:Name="SplitterRow" Height="0"/><RowDefinition x:Name="DetailRow" Height="0"/></Grid.RowDefinitions>
+        <ScrollViewer x:Name="ListPane" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
+            <StackPanel>
+                <Border Style="{StaticResource PanelSurfaceStyle}" Padding="12" Margin="0,0,0,12" automation:AutomationProperties.AutomationId="DiscordControlCenter.Messages.SubNavigation">
+                    <WrapPanel KeyboardNavigation.TabNavigation="Continue">
+                        <TextBlock Text="MESSAGES" Style="{StaticResource DetailLabelStyle}" VerticalAlignment="Center" Margin="0,0,12,0" />
+                        <Button Content="Compose" Command="{Binding NavigateMessagesSectionCommand}" CommandParameter="Compose" Style="{StaticResource SecondaryButtonStyle}" ToolTip="Return to message composition" automation:AutomationProperties.AutomationId="DiscordControlCenter.Messages.Compose" />
+                        <Button Content="Templates" Command="{Binding NavigateMessagesSectionCommand}" CommandParameter="Templates" Style="{StaticResource SecondaryButtonStyle}" Margin="8,0,0,0" ToolTip="Return to templates" automation:AutomationProperties.AutomationId="DiscordControlCenter.Messages.Templates" />
+                        <TextBlock Text="Scheduled messages" Style="{StaticResource SecondaryTextStyle}" VerticalAlignment="Center" Margin="12,0,0,0" FontWeight="SemiBold" automation:AutomationProperties.AutomationId="DiscordControlCenter.Messages.Scheduled" />
+                        <Button Content="Manual approvals" Command="{Binding NavigateMessagesSectionCommand}" CommandParameter="Manual approvals" Style="{StaticResource SecondaryButtonStyle}" Margin="12,0,0,0" ToolTip="Return to manual approvals" automation:AutomationProperties.AutomationId="DiscordControlCenter.Messages.ManualApprovals" />
+                        <Button Content="Delivery history" Command="{Binding NavigateMessagesSectionCommand}" CommandParameter="Delivery history" Style="{StaticResource SecondaryButtonStyle}" Margin="8,0,0,0" ToolTip="Return to delivery history" automation:AutomationProperties.AutomationId="DiscordControlCenter.Messages.DeliveryHistory" />
+                    </WrapPanel>
+                </Border>
+                <Border Style="{StaticResource PanelSurfaceStyle}" Padding="18">
+                    <StackPanel>
+                        <TextBlock Text="SCHEDULED MESSAGES" Style="{StaticResource DetailLabelStyle}"/>
+                        <TextBlock Text="{Binding ScopeSummary}" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                        <TextBlock Text="{Binding ActiveFilterSummary}" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,6,0,0" automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages.ActiveFilters"/>
+                        <WrapPanel Margin="0,12,0,0">
+                            <TextBox Width="210" Style="{StaticResource SearchBoxStyle}" Tag="Search safe schedule metadata" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" ToolTip="Searches only schedule metadata, not message content." automation:AutomationProperties.Name="Scheduled message search" automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages.Search"/>
+                            <ComboBox Width="145" Margin="8,0,0,0" ItemsSource="{Binding Lifecycles}" SelectedItem="{Binding SelectedLifecycle}" ToolTip="Filter by friendly lifecycle" automation:AutomationProperties.Name="Schedule lifecycle filter" automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages.Lifecycle"/>
+                            <ComboBox Width="135" Margin="8,0,0,0" ItemsSource="{Binding Recurrences}" SelectedItem="{Binding SelectedRecurrence}" ToolTip="Filter by recurrence" automation:AutomationProperties.Name="Schedule recurrence filter" automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages.Recurrence"/>
+                            <ComboBox Width="165" Margin="8,0,0,0" ItemsSource="{Binding Templates}" SelectedItem="{Binding SelectedTemplate}" ToolTip="Templates in the selected bot and server scope" automation:AutomationProperties.Name="Schedule template filter" automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages.Template"/>
+                            <ComboBox Width="175" Margin="8,8,0,0" ItemsSource="{Binding Destinations}" SelectedItem="{Binding SelectedDestination}" ToolTip="Destinations in the selected bot and server scope" automation:AutomationProperties.Name="Schedule destination filter" automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages.Destination"/>
+                            <ComboBox Width="175" Margin="8,8,0,0" ItemsSource="{Binding MissedPolicies}" SelectedItem="{Binding SelectedMissedPolicy}" ToolTip="Filter by missed-occurrence policy" automation:AutomationProperties.Name="Schedule missed-occurrence policy filter" automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages.MissedPolicy"/>
+                            <ComboBox Width="165" Margin="8,8,0,0" ItemsSource="{Binding WarningStates}" SelectedItem="{Binding SelectedWarningState}" ToolTip="Filter by safe faults or warnings" automation:AutomationProperties.Name="Schedule warning filter" automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages.Warning"/>
+                            <DatePicker Width="145" Margin="8,8,0,0" SelectedDate="{Binding CreatedFrom}" ToolTip="Created on or after" automation:AutomationProperties.Name="Created from date" automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages.CreatedFrom"/>
+                            <DatePicker Width="145" Margin="8,8,0,0" SelectedDate="{Binding CreatedTo}" ToolTip="Created on or before" automation:AutomationProperties.Name="Created to date" automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages.CreatedTo"/>
+                            <DatePicker Width="145" Margin="8,8,0,0" SelectedDate="{Binding NextRunFrom}" ToolTip="Next run on or after" automation:AutomationProperties.Name="Next run from date" automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages.NextRunFrom"/>
+                            <DatePicker Width="145" Margin="8,8,0,0" SelectedDate="{Binding NextRunTo}" ToolTip="Next run on or before" automation:AutomationProperties.Name="Next run to date" automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages.NextRunTo"/>
+                            <ComboBox Width="190" Margin="8,8,0,0" ItemsSource="{Binding Sorts}" SelectedItem="{Binding SelectedSort}" ToolTip="Stable result ordering" automation:AutomationProperties.Name="Schedule sort" automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages.Sort"/>
+                            <ComboBox Width="90" Margin="8,8,0,0" ItemsSource="{Binding PageSizes}" SelectedItem="{Binding PageSize}" ToolTip="Results per page" automation:AutomationProperties.Name="Schedule page size" automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages.PageSize"/>
+                            <Button Content="Refresh" Command="{Binding RefreshCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="8,8,0,0" ToolTip="Run the scoped metadata query" automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages.Refresh"/>
+                            <Button Content="Clear filters" Command="{Binding ClearFiltersCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="8,8,0,0" ToolTip="Keep the selected bot and server scope" automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages.ClearFilters"/>
+                        </WrapPanel>
+                        <TextBlock Text="{Binding DateRangeMessage}" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" Margin="0,8,0,0" automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages.DateRangeMessage"/>
+                        <TextBlock Text="{Binding QueryError}" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" Margin="0,4,0,0" automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages.QueryError"/>
+                    </StackPanel>
+                </Border>
+                <TextBlock Text="{Binding ScheduleStateMessage}" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="4,12,4,0" automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages.ListState"/>
+                <ListBox ItemsSource="{Binding Schedules}" SelectedItem="{Binding SelectedSchedule}" Background="Transparent" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True" Margin="0,10,0,0" automation:AutomationProperties.Name="Scheduled message list" automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages.List">
+                    <ListBox.ItemContainerStyle><StaticResource ResourceKey="DataRowContainerStyle" /></ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate><DataTemplate><StackPanel Margin="8"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}"/><TextBlock Text="{Binding LifecycleLabel}" Style="{StaticResource SecondaryTextStyle}"/><TextBlock Text="{Binding ChannelName}" Style="{StaticResource MutedTextStyle}" TextTrimming="CharacterEllipsis" ToolTip="{Binding ChannelName}"/><TextBlock Text="{Binding NextRunAt, StringFormat=Next run: {0:g}}" Style="{StaticResource MutedTextStyle}" TextTrimming="CharacterEllipsis"/></StackPanel></DataTemplate></ListBox.ItemTemplate>
+                </ListBox>
+                <WrapPanel Margin="0,10,0,0" KeyboardNavigation.TabNavigation="Continue" automation:AutomationProperties.Name="Schedule paging">
+                    <Button Content="First" Command="{Binding FirstPageCommand}" Style="{StaticResource SecondaryButtonStyle}" ToolTip="First result page" automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages.FirstPage"/>
+                    <Button Content="Previous" Command="{Binding PreviousPageCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="8,0,0,0" ToolTip="Previous result page" automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages.PreviousPage"/>
+                    <TextBlock Text="{Binding PageNumber}" Margin="10,0" VerticalAlignment="Center"/><TextBlock Text=" / " VerticalAlignment="Center"/><TextBlock Text="{Binding TotalPages}" VerticalAlignment="Center"/>
+                    <Button Content="Next" Command="{Binding NextPageCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="10,0,0,0" ToolTip="Next result page" automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages.NextPage"/>
+                    <Button Content="Last" Command="{Binding LastPageCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="8,0,0,0" ToolTip="Last result page" automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages.LastPage"/>
+                    <TextBlock Text="{Binding TotalCount, StringFormat={}{0} records}" Style="{StaticResource MutedTextStyle}" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                </WrapPanel>
+            </StackPanel>
+        </ScrollViewer>
+        <GridSplitter x:Name="ScheduleSplitter" Grid.Column="1" Width="12" Background="Transparent" ResizeBehavior="PreviousAndNext" ToolTip="Resize schedule list and details"/>
+        <ScrollViewer x:Name="DetailPane" Grid.Column="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel>
+            <Border Style="{StaticResource PanelSurfaceStyle}" Padding="18"><StackPanel>
+                <TextBlock Text="SELECTED SCHEDULE" Style="{StaticResource DetailLabelStyle}"/>
+                <TextBlock Text="No schedule selected. Select a schedule row to view its safe, read-only metadata and recent occurrences." Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                <TextBlock Text="{Binding Detail.Name}" Style="{StaticResource SectionHeadingStyle}" Margin="0,8,0,0" TextWrapping="Wrap"/>
+                <TextBlock Text="{Binding Detail.LifecycleExplanation}" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                <TextBlock Text="{Binding Detail.RecurrenceSummary}" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                <TextBlock Text="{Binding Detail.TimeZoneDisplay}" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,6,0,0" ToolTip="Saved time-zone display"/>
+                <TextBlock Text="{Binding Detail.TimeZoneWarning}" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                <TextBlock Text="{Binding DetailError}" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" Margin="0,6,0,0" automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages.DetailError"/>
+                <TextBlock Text="{Binding IsDetailLoading, StringFormat=Loading schedule details: {0}}" Style="{StaticResource MutedTextStyle}" Margin="0,6,0,0"/>
+            </StackPanel></Border>
+            <Border Style="{StaticResource PanelSurfaceStyle}" Padding="18" Margin="0,12,0,0"><StackPanel>
+                <TextBlock Text="RECENT OCCURRENCES" Style="{StaticResource DetailLabelStyle}"/>
+                <TextBlock Text="Latest 10 safe metadata records. Immutable message content is never duplicated here; open it only from the existing Manual Approvals detail flow." Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                <TextBlock Text="{Binding OccurrenceStateMessage}" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                <TextBlock Text="{Binding OccurrenceError}" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" Margin="0,4,0,0" automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages.OccurrenceError"/>
+                <ListBox ItemsSource="{Binding RecentOccurrences}" Background="Transparent" BorderThickness="0" Margin="0,8,0,0" automation:AutomationProperties.Name="Recent schedule occurrences" automation:AutomationProperties.AutomationId="DiscordControlCenter.ScheduledMessages.Occurrences"><ListBox.ItemContainerStyle><StaticResource ResourceKey="DataRowContainerStyle" /></ListBox.ItemContainerStyle><ListBox.ItemTemplate><DataTemplate><StackPanel Margin="8"><TextBlock Text="{Binding StateLabel}" FontWeight="SemiBold"/><TextBlock Text="{Binding DueAt, StringFormat=Due: {0:g}}" Style="{StaticResource SecondaryTextStyle}"/><TextBlock Text="{Binding ResultLabel}" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap"/><TextBlock Text="{Binding CompatibilityLabel}" Style="{StaticResource MutedTextStyle}"/><TextBlock Text="{Binding ManualReviewLabel}" Style="{StaticResource MutedTextStyle}"/><TextBlock Text="{Binding CorrelationId}" Style="{StaticResource MutedTextStyle}" TextTrimming="CharacterEllipsis" ToolTip="{Binding CorrelationId}"/></StackPanel></DataTemplate></ListBox.ItemTemplate></ListBox>
+            </StackPanel></Border>
+        </StackPanel></ScrollViewer>
+    </Grid>
+</UserControl>

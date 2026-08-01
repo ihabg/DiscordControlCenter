@@ -7,9 +7,9 @@
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource AppBackgroundBrush}">
     <DockPanel>
-        <Border DockPanel.Dock="Top" Background="#8B1E1E" Padding="12">
+        <Border DockPanel.Dock="Top" Background="{StaticResource DangerSurfaceBrush}" Padding="12">
             <TextBlock Text="UI HARNESS — TEST DATA ONLY — DISCORD WRITES DISABLED"
-                       FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" />
+                       FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}" HorizontalAlignment="Center" />
         </Border>
         <Border DockPanel.Dock="Top" Background="{StaticResource HeaderBackgroundBrush}" Padding="12">
             <WrapPanel VerticalAlignment="Center">
@@ -22,6 +22,11 @@
                 <Button Content="Reset test data" Command="{Binding ResetCommand}" Style="{StaticResource SecondaryButtonStyle}" />
             </WrapPanel>
         </Border>
-        <views:MessagesView DataContext="{Binding Approval}" />
+        <Grid>
+            <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="8" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+            <views:MessagesView DataContext="{Binding Approval}" />
+            <GridSplitter Grid.Row="1" Height="8" HorizontalAlignment="Stretch" Background="Transparent" />
+            <views:ScheduledMessagesView Grid.Row="2" DataContext="{Binding ScheduledMessages}" />
+        </Grid>
     </DockPanel>
 </Window>

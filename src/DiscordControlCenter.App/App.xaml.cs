@@ -137,6 +137,7 @@ public partial class App : System.Windows.Application
                         services.AddSingleton<OperationCenterViewModel>();
                         services.AddSingleton<BackupBrowserViewModel>();
                         services.AddSingleton<MessagesViewModel>();
+                        services.AddSingleton<ScheduledMessagesViewModel>();
                         services.AddSingleton<AutomationViewModel>();
                         services.AddSingleton<MainWindowViewModel>();
                         services.AddSingleton<MainWindow>();

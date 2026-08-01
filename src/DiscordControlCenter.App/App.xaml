@@ -64,6 +64,9 @@
             <DataTemplate DataType="{x:Type vm:MessagesViewModel}">
                 <views:MessagesView />
             </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:ScheduledMessagesViewModel}">
+                <views:ScheduledMessagesView />
+            </DataTemplate>
             <DataTemplate DataType="{x:Type vm:AutomationViewModel}">
                 <views:AutomationView />
             </DataTemplate>

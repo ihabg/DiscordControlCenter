@@ -158,8 +158,12 @@ public sealed record ScheduledMessageDetail(
     string? TimeZoneWarning,
     ScheduledMessageDefinition Definition);
 
+public sealed record ScheduledMessageOccurrencePage(IReadOnlyList<ScheduledMessageOccurrenceListItem> Items, int Limit);
+
 public interface IScheduledMessageQueryService
 {
     Task<ScheduledMessagePage> QueryAsync(ScheduledMessageQuery query, CancellationToken cancellationToken);
+    Task<ScheduledMessageFilterOptions> GetFilterOptionsAsync(Guid botProfileId, ulong serverId, CancellationToken cancellationToken);
     Task<ScheduledMessageDetail?> GetDetailAsync(Guid botProfileId, ulong serverId, Guid scheduleId, CancellationToken cancellationToken);
+    Task<ScheduledMessageOccurrencePage> GetRecentOccurrencesAsync(Guid botProfileId, ulong serverId, Guid scheduleId, int limit, CancellationToken cancellationToken);
 }

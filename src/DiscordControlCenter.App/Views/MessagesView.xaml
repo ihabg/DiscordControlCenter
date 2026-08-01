@@ -10,7 +10,19 @@
             <ColumnDefinition Width="12" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
-        <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+        <Border Grid.ColumnSpan="3" Style="{StaticResource PanelSurfaceStyle}" Padding="12" Margin="0,0,0,12" automation:AutomationProperties.AutomationId="DiscordControlCenter.Messages.SubNavigation">
+            <WrapPanel KeyboardNavigation.TabNavigation="Continue">
+                <TextBlock Text="MESSAGES" Style="{StaticResource DetailLabelStyle}" VerticalAlignment="Center" Margin="0,0,12,0" />
+                <Button Content="Compose" Command="{Binding NavigateMessagesSectionCommand}" CommandParameter="Compose" Style="{StaticResource SecondaryButtonStyle}" ToolTip="Compose a message" automation:AutomationProperties.AutomationId="DiscordControlCenter.Messages.Compose" />
+                <Button Content="Templates" Command="{Binding NavigateMessagesSectionCommand}" CommandParameter="Templates" Style="{StaticResource SecondaryButtonStyle}" Margin="8,0,0,0" ToolTip="Message templates" automation:AutomationProperties.AutomationId="DiscordControlCenter.Messages.Templates" />
+                <Button Content="Scheduled messages" Command="{Binding NavigateMessagesSectionCommand}" CommandParameter="Scheduled messages" Style="{StaticResource SecondaryButtonStyle}" Margin="8,0,0,0" ToolTip="Browse schedules without changing them" automation:AutomationProperties.AutomationId="DiscordControlCenter.Messages.Scheduled" />
+                <Button Content="Manual approvals" Command="{Binding NavigateMessagesSectionCommand}" CommandParameter="Manual approvals" Style="{StaticResource SecondaryButtonStyle}" Margin="8,0,0,0" ToolTip="Review pending manual approvals" automation:AutomationProperties.AutomationId="DiscordControlCenter.Messages.ManualApprovals" />
+                <Button Content="Delivery history" Command="{Binding NavigateMessagesSectionCommand}" CommandParameter="Delivery history" Style="{StaticResource SecondaryButtonStyle}" Margin="8,0,0,0" ToolTip="Review safe delivery history" automation:AutomationProperties.AutomationId="DiscordControlCenter.Messages.DeliveryHistory" />
+                <TextBlock Text="{Binding ActiveMessagesSection, StringFormat=Current section: {0}}" Style="{StaticResource SecondaryTextStyle}" VerticalAlignment="Center" Margin="12,0,0,0" automation:AutomationProperties.AutomationId="DiscordControlCenter.Messages.CurrentSection" />
+            </WrapPanel>
+        </Border>
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
             <StackPanel>
                 <Border Style="{StaticResource PanelSurfaceStyle}" Padding="18">
                     <StackPanel>
@@ -106,8 +118,8 @@
                 </Border>
             </StackPanel>
         </ScrollViewer>
-        <GridSplitter Grid.Column="1" Width="12" Background="Transparent" ShowsPreview="True" />
-        <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
+        <GridSplitter Grid.Row="1" Grid.Column="1" Width="12" Background="Transparent" ShowsPreview="True" />
+        <ScrollViewer Grid.Row="1" Grid.Column="2" VerticalScrollBarVisibility="Auto">
             <StackPanel>
                 <Border Style="{StaticResource PanelSurfaceStyle}" Padding="18">
                     <Grid>

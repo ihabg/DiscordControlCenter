@@ -603,6 +603,37 @@ user-token/self-bot behavior remain outside the architecture.
 
 ## WPF startup and UI-harness isolation
 
+### Scheduled Messages read-only query surface
+
+`IScheduledMessageQueryService` is the read boundary for the Scheduled Messages page.
+It requires an explicit bot-profile and server scope, validates bounded pages, delegates
+filtering/sorting/counting to `IScheduledMessageRepository`, and loads schedule detail
+separately. The repository supports every `ScheduledMessageQuery` filter and stable
+sort tie-breakers. Scoped template and destination filter options retain unavailable
+saved metadata as friendly labels.
+
+Recent occurrences are a separate, selected-schedule query capped at ten rows in WPF
+(and at fifty at the service boundary). The projection has only occurrence ID, revision,
+safe timestamps, friendly state/result, safe failure category, manual decision,
+correlation ID, snapshot compatibility, and manual-review indication. It does not
+project immutable outbound content, embeds, exceptions, credentials, authorization, or
+Discord payloads. Existing Manual Approvals detail infrastructure remains the only
+explicit immutable-content opening path.
+
+The Scheduled Messages ViewModel has separate cancellation/generation guards for list,
+detail, and occurrence reads. Scope/filter changes invalidate old results; clearing a
+selection invalidates pending detail/occurrence reads. It exposes inline unavailable,
+loading, refreshing, empty, no-results, invalid-date, query-error, missing-selection,
+detail-error, missing-schedule, recurrence-warning, time-zone-warning, occurrence-empty,
+and occurrence-error explanations. These recoverable states never use the global fatal
+dialog. The responsive view retains a splitter at wide widths and stacks list above
+details at narrow widths while keeping filter/paging/detail content scrollable.
+
+This increment is strictly read-only. The next messaging increment may introduce actual
+schedule commands only behind the existing guarded command, confirmation, and writer
+boundaries. SoundPad is explicitly excluded from the application, test harness, and all
+validation work.
+
 ### Manual approval queue and history
 
 Scheduled-approval list rows are projected from normalized safe metadata on the occurrence:

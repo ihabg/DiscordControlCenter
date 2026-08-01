@@ -115,6 +115,34 @@ Queue and terminal-history filters, sorting, paging, selection, and refresh gene
 independent. The isolated harness covers multi-page pending/history metadata, deleted schedules,
 and manual-review terminal states; it never accesses Discord, production storage, or unrelated apps.
 
+## Scheduled Messages read-only browser
+
+**Scheduled Messages** is a metadata-only browser for the currently selected bot and
+server. It does not create, edit, enable, disable, archive, delete, render, test-send,
+or deliver a schedule. Those commands are intentionally deferred to the next increment.
+
+The page queries SQLite in the selected scope and supports safe metadata search,
+lifecycle, recurrence, template, destination, missed-occurrence policy, warning,
+created-date, and next-run-date filters. Sorting and paging execute in the repository;
+they are never applied only to the visible page. Changing material filters returns to
+page one, invalid date ranges are explained without querying, and Clear filters keeps
+the selected bot/server scope. Saved template or channel metadata that no longer
+resolves is labeled as unavailable rather than dropped.
+
+Rows and detail views use friendly lifecycle, recurrence, missed-policy, and time-zone
+presentation. Invalid saved recurrence or time-zone data remains a safe inline warning.
+The selected schedule also has a bounded recent-occurrence summary (latest 10). It
+contains safe identifiers, timestamps, result/failure category, decision, correlation,
+snapshot compatibility, and manual-review state only. It never repeats outbound message
+or embed content; immutable content remains available only through the explicit existing
+Manual Approvals detail flow.
+
+Schedule list, detail, and occurrence loads are independently cancellable and
+generation-guarded. Scheduled Messages state is independent from Manual Approvals
+filters, paging, and selection. The isolated UI harness uses deterministic in-memory
+test data and is excluded from Discord gateway/REST, tokens, production SQLite, writers,
+SoundPad, and all unrelated applications.
+
 ## Read-only explorers
 
 Choose a saved bot and server in the toolbar after connecting the bot explicitly from

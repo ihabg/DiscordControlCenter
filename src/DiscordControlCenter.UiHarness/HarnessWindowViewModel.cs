@@ -22,6 +22,7 @@ public sealed class HarnessWindowViewModel : ObservableObject
     private HarnessScenario? _selectedScenario;
     private bool _connected = true;
     private bool _sendMessages = true;
+    private readonly HarnessScheduledMessageQueryService _scheduleService;
 
     public HarnessWindowViewModel(Window owner)
     {
@@ -29,6 +30,8 @@ public sealed class HarnessWindowViewModel : ObservableObject
         _seed = HarnessScenario.CreateAll();
         Scenarios = new ObservableCollection<HarnessScenario>(_seed);
         Approval = new HarnessApprovalViewModel(owner);
+        _scheduleService = new HarnessScheduledMessageQueryService();
+        ScheduledMessages = new ScheduledMessagesViewModel(_scheduleService);
         NormalLayoutCommand = new RelayCommand(_ => SetLayout(1600, 900));
         NarrowLayoutCommand = new RelayCommand(_ => SetLayout(1100, 700));
         ToggleConnectionCommand = new RelayCommand(_ => { _connected = !_connected; Apply(); });
@@ -39,6 +42,7 @@ public sealed class HarnessWindowViewModel : ObservableObject
 
     public ObservableCollection<HarnessScenario> Scenarios { get; }
     public HarnessApprovalViewModel Approval { get; }
+    public ScheduledMessagesViewModel ScheduledMessages { get; }
     public ICommand NormalLayoutCommand { get; }
     public ICommand NarrowLayoutCommand { get; }
     public ICommand ToggleConnectionCommand { get; }
@@ -62,6 +66,16 @@ public sealed class HarnessWindowViewModel : ObservableObject
         if (_selectedScenario is not null)
         {
             Approval.Load(_selectedScenario, _connected, _sendMessages);
+            _scheduleService.Scenario = _selectedScenario;
+            if (_selectedScenario.Kind == HarnessScenarioKind.NoBotServerScope)
+            {
+                ScheduledMessages.SetContext(null, null, null, null);
+            }
+            else
+            {
+                ScheduledMessages.SetContext(HarnessScheduledMessageQueryService.BotId, "Harness bot", HarnessScheduledMessageQueryService.ServerId, "Harness server");
+                _ = ScheduledMessages.LoadAsync(CancellationToken.None);
+            }
         }
     }
 }
@@ -295,6 +309,32 @@ public sealed record HarnessScenario(string Name, HarnessScenarioKind Kind)
         ,new("16. Uncertain manual review", HarnessScenarioKind.Uncertain)
         ,new("17. Skipped history", HarnessScenarioKind.Skipped)
         ,new("18. Archived history", HarnessScenarioKind.Archived)
+        ,new("19. No bot/server scope", HarnessScenarioKind.NoBotServerScope)
+        ,new("20. No schedules", HarnessScenarioKind.NoSchedules)
+        ,new("21. No filtered schedule results", HarnessScenarioKind.NoFilteredSchedules)
+        ,new("22. Draft schedule", HarnessScenarioKind.ScheduleDraft)
+        ,new("23. Enabled schedule and multiple pages", HarnessScenarioKind.ScheduleEnabled)
+        ,new("24. Disabled schedule", HarnessScenarioKind.ScheduleDisabled)
+        ,new("25. Faulted schedule", HarnessScenarioKind.ScheduleFaulted)
+        ,new("26. Expired schedule", HarnessScenarioKind.ScheduleExpired)
+        ,new("27. Archived schedule", HarnessScenarioKind.ScheduleArchived)
+        ,new("28. One-time recurrence", HarnessScenarioKind.ScheduleOnce)
+        ,new("29. Weekly selected weekdays", HarnessScenarioKind.ScheduleWeekly)
+        ,new("30. Invalid recurrence", HarnessScenarioKind.ScheduleInvalidRecurrence)
+        ,new("31. Invalid time zone", HarnessScenarioKind.ScheduleInvalidTimeZone)
+        ,new("32. Missing template metadata", HarnessScenarioKind.ScheduleMissingTemplate)
+        ,new("33. Deleted destination metadata", HarnessScenarioKind.ScheduleDeletedDestination)
+        ,new("34. Long schedule and time-zone labels", HarnessScenarioKind.ScheduleLongText)
+        ,new("35. Recent delivered occurrence", HarnessScenarioKind.OccurrenceDelivered)
+        ,new("36. Recent failed occurrence", HarnessScenarioKind.OccurrenceFailed)
+        ,new("37. Recent pending approval", HarnessScenarioKind.OccurrencePendingApproval)
+        ,new("38. Recent skipped occurrence", HarnessScenarioKind.OccurrenceSkipped)
+        ,new("39. Recent archived occurrence", HarnessScenarioKind.OccurrenceArchived)
+        ,new("40. Recent uncertain/manual-review occurrence", HarnessScenarioKind.OccurrenceUncertain)
+        ,new("41. No recent occurrences", HarnessScenarioKind.NoRecentOccurrences)
+        ,new("42. Schedule query error", HarnessScenarioKind.ScheduleQueryError)
+        ,new("43. Schedule detail error", HarnessScenarioKind.ScheduleDetailError)
+        ,new("44. Occurrence query error", HarnessScenarioKind.ScheduleOccurrenceError)
     ];
 
     public ScheduledMessageApproval CreateApproval()
@@ -350,4 +390,48 @@ public sealed record HarnessScenario(string Name, HarnessScenarioKind Kind)
         AllowedMentionPolicy.None);
 }
 
-public enum HarnessScenarioKind { Plain, FullEmbed, NearLimit, OverLimit, BroadMention, Disconnected, MissingSendMessages, MissingEmbedLinks, Legacy, Unsupported, MissingData, TargetIds, LongText, Delivered, Failed, Uncertain, Skipped, Archived }
+public enum HarnessScenarioKind { Plain, FullEmbed, NearLimit, OverLimit, BroadMention, Disconnected, MissingSendMessages, MissingEmbedLinks, Legacy, Unsupported, MissingData, TargetIds, LongText, Delivered, Failed, Uncertain, Skipped, Archived, NoBotServerScope, NoSchedules, NoFilteredSchedules, ScheduleDraft, ScheduleEnabled, ScheduleDisabled, ScheduleFaulted, ScheduleExpired, ScheduleArchived, ScheduleOnce, ScheduleWeekly, ScheduleInvalidRecurrence, ScheduleInvalidTimeZone, ScheduleMissingTemplate, ScheduleDeletedDestination, ScheduleLongText, OccurrenceDelivered, OccurrenceFailed, OccurrencePendingApproval, OccurrenceSkipped, OccurrenceArchived, OccurrenceUncertain, NoRecentOccurrences, ScheduleQueryError, ScheduleDetailError, ScheduleOccurrenceError }
+
+/// <summary>In-memory only source for the shared Scheduled Messages presentation.</summary>
+public sealed class HarnessScheduledMessageQueryService : IScheduledMessageQueryService
+{
+    public static readonly Guid BotId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+    public const ulong ServerId = 444444444444444444;
+    private static readonly Guid ScheduleId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+    public HarnessScenario? Scenario { get; set; }
+
+    public Task<ScheduledMessageFilterOptions> GetFilterOptionsAsync(Guid botProfileId, ulong serverId, CancellationToken cancellationToken) => Task.FromResult(new ScheduledMessageFilterOptions([new(Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"), "Harness template")], [new(555555555555555555, "#harness-destination")]));
+    public Task<ScheduledMessagePage> QueryAsync(ScheduledMessageQuery query, CancellationToken cancellationToken)
+    {
+        if (Scenario?.Kind == HarnessScenarioKind.ScheduleQueryError) throw new InvalidOperationException("Harness query error");
+        if (Scenario?.Kind is HarnessScenarioKind.NoSchedules or HarnessScenarioKind.NoFilteredSchedules) return Task.FromResult(new ScheduledMessagePage([], 0, 1, query.PageSize, DateTimeOffset.UtcNow));
+        var item = CreateItem();
+        var items = Scenario?.Kind == HarnessScenarioKind.ScheduleEnabled ? Enumerable.Range(1, 30).Select(index => item with { Id = Guid.NewGuid(), Name = $"Harness schedule {index:D2}" }).ToArray() : [item];
+        return Task.FromResult(new ScheduledMessagePage(items, items.Length, query.PageNumber, query.PageSize, DateTimeOffset.UtcNow));
+    }
+    public Task<ScheduledMessageDetail?> GetDetailAsync(Guid botProfileId, ulong serverId, Guid scheduleId, CancellationToken cancellationToken)
+    {
+        if (Scenario?.Kind == HarnessScenarioKind.ScheduleDetailError) throw new InvalidOperationException("Harness detail error");
+        var item = CreateItem(); var weekdays = item.Recurrence == ScheduledMessageRecurrence.Weekly && Scenario?.Kind != HarnessScenarioKind.ScheduleInvalidRecurrence ? ImmutableArray.Create(DayOfWeek.Monday, DayOfWeek.Friday) : ImmutableArray<DayOfWeek>.Empty;
+        var definition = new ScheduledMessageDefinition(item.Id, BotId, MessageDestination.Channel(ServerId, "Harness server", 555555555555555555, item.ChannelName), null, null, item.Recurrence, new TimeOnly(9, 30), item.TimeZoneId, weekdays, DateTimeOffset.UtcNow, null, item.Lifecycle == ScheduledMessageLifecycle.Enabled, MissedOccurrencePolicy.RequireManualApproval, 0, null, item.NextRunAt) { Name = item.Name, SavedLifecycle = item.Lifecycle };
+        var recurrenceSummary = Scenario?.Kind == HarnessScenarioKind.ScheduleInvalidRecurrence ? "Weekly recurrence has no selected weekdays." : item.Recurrence == ScheduledMessageRecurrence.Once ? "One time on 01 August 2026 at 09:30" : item.Recurrence == ScheduledMessageRecurrence.Weekly ? "Monday, Friday at 09:30" : "Every day at 09:30";
+        return Task.FromResult<ScheduledMessageDetail?>(new(item.Id, item.Name, item.Lifecycle, "Harness read-only lifecycle explanation.", recurrenceSummary, item.TimeZoneId, Scenario?.Kind == HarnessScenarioKind.ScheduleInvalidTimeZone ? "Invalid or unavailable time zone." : null, definition));
+    }
+    public Task<ScheduledMessageOccurrencePage> GetRecentOccurrencesAsync(Guid botProfileId, ulong serverId, Guid scheduleId, int limit, CancellationToken cancellationToken)
+    {
+        if (Scenario?.Kind == HarnessScenarioKind.ScheduleOccurrenceError) throw new InvalidOperationException("Harness occurrence error");
+        if (Scenario?.Kind == HarnessScenarioKind.NoRecentOccurrences) return Task.FromResult(new ScheduledMessageOccurrencePage([], limit));
+        var state = Scenario?.Kind switch { HarnessScenarioKind.OccurrenceFailed => MessageOperationState.Failed, HarnessScenarioKind.OccurrencePendingApproval => MessageOperationState.PendingApproval, HarnessScenarioKind.OccurrenceSkipped => MessageOperationState.Skipped, HarnessScenarioKind.OccurrenceArchived => MessageOperationState.Archived, HarnessScenarioKind.OccurrenceUncertain => MessageOperationState.Uncertain, _ => MessageOperationState.Delivered };
+        return Task.FromResult(new ScheduledMessageOccurrencePage([new(Guid.NewGuid(), 1, DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow.AddMinutes(-6), null, DateTimeOffset.UtcNow, state, state == MessageOperationState.Failed ? "HARNESS_SAFE_FAILURE" : null, state == MessageOperationState.PendingApproval ? null : "Harness decision", Guid.NewGuid(), SnapshotCompatibility.Supported)], limit));
+    }
+    private ScheduledMessageListItem CreateItem()
+    {
+        var lifecycle = Scenario?.Kind switch { HarnessScenarioKind.ScheduleDraft => ScheduledMessageLifecycle.Draft, HarnessScenarioKind.ScheduleDisabled => ScheduledMessageLifecycle.Disabled, HarnessScenarioKind.ScheduleFaulted => ScheduledMessageLifecycle.Faulted, HarnessScenarioKind.ScheduleExpired => ScheduledMessageLifecycle.Expired, HarnessScenarioKind.ScheduleArchived => ScheduledMessageLifecycle.Archived, _ => ScheduledMessageLifecycle.Enabled };
+        var recurrence = Scenario?.Kind switch { HarnessScenarioKind.ScheduleOnce => ScheduledMessageRecurrence.Once, HarnessScenarioKind.ScheduleWeekly or HarnessScenarioKind.ScheduleInvalidRecurrence => ScheduledMessageRecurrence.Weekly, _ => ScheduledMessageRecurrence.Daily };
+        var name = Scenario?.Kind == HarnessScenarioKind.ScheduleLongText ? "A deliberately long harness schedule name that verifies readable wrapping at narrow widths" : "Harness scheduled message";
+        var zone = Scenario?.Kind == HarnessScenarioKind.ScheduleInvalidTimeZone ? "Invalid/Harness-Time-Zone" : Scenario?.Kind == HarnessScenarioKind.ScheduleLongText ? "(UTC+12:45) Chatham Islands — deliberately long harness time-zone display" : "UTC";
+        var channel = Scenario?.Kind == HarnessScenarioKind.ScheduleDeletedDestination ? "Deleted or unavailable channel" : "#harness-destination";
+        var template = Scenario?.Kind == HarnessScenarioKind.ScheduleMissingTemplate ? "Deleted or unavailable template" : "Harness template";
+        return new(ScheduleId, name, lifecycle, "Harness bot", "Harness server", channel, template, recurrence, zone, DateTimeOffset.UtcNow.AddDays(1), null, null, MissedOccurrencePolicy.RequireManualApproval, lifecycle is ScheduledMessageLifecycle.Faulted or ScheduledMessageLifecycle.Expired, 1, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+    }
+}
