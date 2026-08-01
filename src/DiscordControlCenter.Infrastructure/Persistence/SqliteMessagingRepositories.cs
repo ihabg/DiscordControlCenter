@@ -271,6 +271,90 @@ public sealed class SqliteScheduledMessageRepository(SqliteConnectionFactory con
         return result;
     }
 
+    public async Task<ScheduledMessageDefinition?> GetScheduleAsync(Guid scheduleId, CancellationToken cancellationToken)
+    {
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT DefinitionJson FROM ScheduledMessages WHERE Id = $id;";
+        command.Parameters.AddWithValue("$id", scheduleId.ToString("D"));
+        var json = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as string;
+        return json is null ? null : JsonSerializer.Deserialize<ScheduledMessageDefinition>(json, JsonOptions);
+    }
+
+    public async Task<ScheduledMessagePage> QuerySchedulesAsync(ScheduledMessageQuery query, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        if (query.CreatedFrom is { } createdFrom && query.CreatedTo is { } createdTo && createdFrom > createdTo
+            || query.NextRunFrom is { } nextFrom && query.NextRunTo is { } nextTo && nextFrom > nextTo)
+        {
+            throw new ArgumentException("The selected date range is invalid.", nameof(query));
+        }
+
+        if (query.PageSize is < 1 or > 200) throw new ArgumentOutOfRangeException(nameof(query));
+        var page = Math.Max(1, query.PageNumber);
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        const string where = """
+            WHERE s.BotProfileId = $botId AND s.ServerId = $serverId
+              AND ($search = '' OR s.ScheduleName LIKE '%' || $search || '%' OR s.Id LIKE '%' || $search || '%' OR COALESCE(t.Name, '') LIKE '%' || $search || '%' OR COALESCE(json_extract(s.DefinitionJson, '$.destination.channelName'), '') LIKE '%' || $search || '%')
+              AND ($recurrence IS NULL OR json_extract(s.DefinitionJson, '$.recurrence') = $recurrence)
+              AND ($templateId IS NULL OR json_extract(s.DefinitionJson, '$.templateId') = $templateId)
+              AND ($channelId IS NULL OR json_extract(s.DefinitionJson, '$.destination.channelId') = $channelId)
+              AND ($missedPolicy IS NULL OR json_extract(s.DefinitionJson, '$.missedOccurrencePolicy') = $missedPolicy)
+              AND ($createdFrom IS NULL OR s.CreatedAt >= $createdFrom) AND ($createdTo IS NULL OR s.CreatedAt <= $createdTo)
+              AND ($nextFrom IS NULL OR json_extract(s.DefinitionJson, '$.nextRunAt') >= $nextFrom) AND ($nextTo IS NULL OR json_extract(s.DefinitionJson, '$.nextRunAt') <= $nextTo)
+              AND ($lifecycle IS NULL OR ($lifecycle = 'Enabled' AND s.IsEnabled = 1 AND (json_extract(s.DefinitionJson, '$.endAt') IS NULL OR json_extract(s.DefinitionJson, '$.endAt') >= $now)) OR ($lifecycle = 'Disabled' AND s.IsEnabled = 0) OR ($lifecycle = 'Expired' AND json_extract(s.DefinitionJson, '$.endAt') IS NOT NULL AND json_extract(s.DefinitionJson, '$.endAt') < $now))
+            """;
+        await using var count = connection.CreateCommand();
+        count.CommandText = $"SELECT COUNT(*) FROM ScheduledMessages s LEFT JOIN MessageTemplates t ON t.Id = json_extract(s.DefinitionJson, '$.templateId') {where};";
+        AddScheduleParameters(count, query);
+        var total = Convert.ToInt32(await count.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT s.Id, s.ScheduleName, s.IsEnabled, s.DefinitionJson, s.CreatedAt, s.UpdatedAt, COALESCE(b.DisplayName, 'Saved bot'), COALESCE(t.Name, '') FROM ScheduledMessages s LEFT JOIN BotProfiles b ON b.Id = s.BotProfileId LEFT JOIN MessageTemplates t ON t.Id = json_extract(s.DefinitionJson, '$.templateId') {where} ORDER BY {GetScheduleSort(query.Sort)} LIMIT $limit OFFSET $offset;";
+        AddScheduleParameters(command, query);
+        command.Parameters.AddWithValue("$limit", query.PageSize);
+        command.Parameters.AddWithValue("$offset", (page - 1) * query.PageSize);
+        var items = new List<ScheduledMessageListItem>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var definition = JsonSerializer.Deserialize<ScheduledMessageDefinition>(reader.GetString(3), JsonOptions) ?? throw new InvalidOperationException("Scheduled message definition is invalid.");
+            var endAt = definition.EndAt;
+            var lifecycle = endAt is not null && endAt < DateTimeOffset.UtcNow ? ScheduledMessageLifecycle.Expired : definition.IsEnabled ? ScheduledMessageLifecycle.Enabled : ScheduledMessageLifecycle.Disabled;
+            items.Add(new ScheduledMessageListItem(definition.Id, reader.GetString(1), lifecycle, reader.GetString(6), definition.Destination.ServerName, definition.Destination.ChannelName ?? "Deleted or unavailable channel", string.IsNullOrWhiteSpace(reader.GetString(7)) ? "Saved message" : reader.GetString(7), definition.Recurrence, definition.TimeZoneId, definition.NextRunAt, definition.LastRunAt, null, definition.MissedOccurrencePolicy, lifecycle is ScheduledMessageLifecycle.Expired, 1, DateTimeOffset.Parse(reader.GetString(4), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), DateTimeOffset.Parse(reader.GetString(5), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)));
+        }
+
+        return new ScheduledMessagePage(items, total, page, query.PageSize, DateTimeOffset.UtcNow);
+    }
+
+    private static void AddScheduleParameters(Microsoft.Data.Sqlite.SqliteCommand command, ScheduledMessageQuery query)
+    {
+        command.Parameters.AddWithValue("$botId", query.BotProfileId.ToString("D"));
+        command.Parameters.AddWithValue("$serverId", query.ServerId.ToString(CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$search", query.Search?.Trim() ?? string.Empty);
+        command.Parameters.AddWithValue("$recurrence", query.Recurrence?.ToString() ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$templateId", query.TemplateId?.ToString("D") ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$channelId", query.ChannelId?.ToString(CultureInfo.InvariantCulture) ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$missedPolicy", query.MissedPolicy?.ToString() ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$lifecycle", query.Lifecycle?.ToString() ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$createdFrom", query.CreatedFrom?.ToString("O") ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$createdTo", query.CreatedTo?.ToString("O") ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$nextFrom", query.NextRunFrom?.ToString("O") ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$nextTo", query.NextRunTo?.ToString("O") ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToString("O"));
+    }
+
+    private static string GetScheduleSort(ScheduledMessageSort sort) => sort switch
+    {
+        ScheduledMessageSort.NextRunDescending => "json_extract(s.DefinitionJson, '$.nextRunAt') DESC, s.Id ASC",
+        ScheduledMessageSort.Name => "s.ScheduleName COLLATE NOCASE ASC, s.Id ASC",
+        ScheduledMessageSort.CreatedNewest => "s.CreatedAt DESC, s.Id ASC",
+        ScheduledMessageSort.CreatedOldest => "s.CreatedAt ASC, s.Id ASC",
+        ScheduledMessageSort.UpdatedNewest => "s.UpdatedAt DESC, s.Id ASC",
+        ScheduledMessageSort.State => "s.IsEnabled DESC, s.Id ASC",
+        ScheduledMessageSort.LastResult => "json_extract(s.DefinitionJson, '$.lastRunAt') DESC, s.Id ASC",
+        _ => "json_extract(s.DefinitionJson, '$.nextRunAt') ASC, s.Id ASC"
+    };
+
     public async Task SaveAsync(ScheduledMessageDefinition definition, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(definition);

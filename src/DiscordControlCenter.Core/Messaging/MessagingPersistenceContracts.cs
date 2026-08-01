@@ -29,6 +29,8 @@ public interface IDeliveryHistoryRepository
 public interface IScheduledMessageRepository
 {
     Task<IReadOnlyList<ScheduledMessageDefinition>> ListEnabledAsync(CancellationToken cancellationToken);
+    Task<ScheduledMessagePage> QuerySchedulesAsync(ScheduledMessageQuery query, CancellationToken cancellationToken);
+    Task<ScheduledMessageDefinition?> GetScheduleAsync(Guid scheduleId, CancellationToken cancellationToken);
     Task SaveAsync(ScheduledMessageDefinition definition, CancellationToken cancellationToken);
     Task<bool> TryReserveOccurrenceAsync(ScheduledMessageOccurrence occurrence, CancellationToken cancellationToken);
     Task CompleteOccurrenceAsync(ScheduledMessageOccurrence occurrence, CancellationToken cancellationToken);

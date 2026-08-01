@@ -329,6 +329,75 @@ public sealed record ScheduledApprovalScheduleOption(Guid ScheduleId, string Nam
 {
     public string DisplayName => IsDeleted ? "Deleted or unavailable schedule" : Name;
 }
+
+public enum ScheduledMessageSort
+{
+    NextRunAscending,
+    NextRunDescending,
+    Name,
+    CreatedNewest,
+    CreatedOldest,
+    UpdatedNewest,
+    State,
+    LastResult
+}
+
+public enum ScheduledMessageLifecycle
+{
+    Draft,
+    Enabled,
+    Disabled,
+    Faulted,
+    Expired,
+    Archived
+}
+
+public sealed record ScheduledMessageQuery(
+    Guid BotProfileId,
+    ulong ServerId,
+    string? Search,
+    ScheduledMessageLifecycle? Lifecycle,
+    ScheduledMessageRecurrence? Recurrence,
+    Guid? TemplateId,
+    ulong? ChannelId,
+    MissedOccurrencePolicy? MissedPolicy,
+    bool? HasWarning,
+    DateTimeOffset? CreatedFrom,
+    DateTimeOffset? CreatedTo,
+    DateTimeOffset? NextRunFrom,
+    DateTimeOffset? NextRunTo,
+    ScheduledMessageSort Sort,
+    int PageNumber,
+    int PageSize);
+
+public sealed record ScheduledMessageListItem(
+    Guid Id,
+    string Name,
+    ScheduledMessageLifecycle Lifecycle,
+    string BotDisplayName,
+    string ServerName,
+    string ChannelName,
+    string MessageSourceLabel,
+    ScheduledMessageRecurrence Recurrence,
+    string TimeZoneId,
+    DateTimeOffset? NextRunAt,
+    DateTimeOffset? LastRunAt,
+    MessageOperationState? LastResult,
+    MissedOccurrencePolicy MissedPolicy,
+    bool HasWarning,
+    int Revision,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt);
+
+public sealed record ScheduledMessagePage(
+    IReadOnlyList<ScheduledMessageListItem> Items,
+    int TotalCount,
+    int PageNumber,
+    int PageSize,
+    DateTimeOffset QueriedAt)
+{
+    public int TotalPages => Math.Max(1, (int)Math.Ceiling(TotalCount / (double)PageSize));
+}
 public sealed record ScheduledApprovalListItem(Guid OccurrenceId, Guid ScheduleId, string ScheduleName, Guid BotProfileId, ulong ServerId, string ServerName, ulong? ChannelId, string ChannelName, DateTimeOffset DueAt, string TimeZoneId, DateTimeOffset? ReservedAt, MessageOperationState State, Guid? TemplateId, int? TemplateVersion, bool HasContent, bool HasEmbed, bool HasBroadMentionWarning, int SnapshotSchemaVersion, SnapshotCompatibility Compatibility, Guid CorrelationId, string? SafeFailureCode, DateTimeOffset? DecisionAt)
 {
     public string BotDisplayName { get; init; } = "Saved bot";
