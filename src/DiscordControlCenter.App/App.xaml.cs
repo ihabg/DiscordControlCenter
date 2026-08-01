@@ -57,7 +57,8 @@ public partial class App : System.Windows.Application
         try
         {
             StartupLog("Process started");
-            StartupLog("Command-line arguments parsed");
+            var uiAutomationProbeMode = e.Args.Contains("--ui-automation-probe", StringComparer.Ordinal);
+            StartupLog("Command-line arguments parsed", new { UiAutomationProbeMode = uiAutomationProbeMode });
             _host = Host.CreateDefaultBuilder()
                 .UseSerilog(_bootstrapLogger, dispose: false)
                 .ConfigureServices(
@@ -151,6 +152,12 @@ public partial class App : System.Windows.Application
             window.SourceInitialized += OnMainWindowSourceInitialized;
             window.Show();
             StartupLog("MainWindow.Show invoked");
+            if (uiAutomationProbeMode)
+            {
+                StartupLog("UI automation probe mode active; background host, persistence, and Discord initialization skipped");
+                return;
+            }
+
             _ = CompleteStartupAsync(window, CancellationToken.None);
         }
         catch (Exception exception)
@@ -250,25 +257,25 @@ public partial class App : System.Windows.Application
     {
         _ = sender;
         _ = e;
-        StartupLog("MainWindow Loaded");
+        StartupLog("MainWindow Loaded", NativeWindowDiagnostics.Capture((Window)sender));
     }
 
     private void OnMainWindowContentRendered(object? sender, EventArgs e)
     {
         _ = sender;
         _ = e;
-        StartupLog("MainWindow ContentRendered");
+        StartupLog("MainWindow ContentRendered", NativeWindowDiagnostics.Capture(MainWindow));
     }
 
     private void OnMainWindowSourceInitialized(object? sender, EventArgs e)
     {
         _ = sender;
         _ = e;
-        StartupLog("Main window handle created");
+        StartupLog("Main window handle created", NativeWindowDiagnostics.Capture(MainWindow));
     }
 
-    private void StartupLog(string milestone) =>
-        _bootstrapLogger?.Information("Startup milestone {Milestone}", milestone);
+    private void StartupLog(string milestone, object? diagnostics = null) =>
+        _bootstrapLogger?.Information("Startup milestone {Milestone} {@Diagnostics}", milestone, diagnostics);
 
     private void RegisterExceptionHandlers()
     {

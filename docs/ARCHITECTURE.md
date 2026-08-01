@@ -25,6 +25,23 @@ The project boundary remains:
 
 No ViewModel retains a Discord.Net entity. No Core/Application/App type exposes one.
 
+## Production-window diagnostics
+
+The App's WPF lifecycle logs a native-window snapshot at `SourceInitialized`,
+`Loaded`, and `ContentRendered`. The snapshot records the HWND, title/class, visible
+and enabled state, screen/client rectangles, owner/parent/root, style flags, and
+tool-window/no-activate/layered/cloaked/minimized classifications. This makes the
+top-level window contract observable without logging user, token, database, or
+Discord data.
+
+`DiscordControlCenter.UiAutomationProbe` is deliberately isolated from the App's
+service composition. It can start only the repository's exact Release executable,
+passes `--ui-automation-probe`, enumerates that process's native windows, and attaches
+UI Automation directly to its HWND. Probe mode renders the real MainWindow while
+skipping the host, persistence, and Discord initialization. It inspects only window
+metadata and named controls; the only permitted UI interaction is invoking the
+Messages navigation item so the Manual Approvals surface can be checked.
+
 ## Guarded write boundary
 
 The write dependency direction is:

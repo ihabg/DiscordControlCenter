@@ -6,6 +6,7 @@
     <Project Path="src/DiscordControlCenter.Discord/DiscordControlCenter.Discord.csproj" />
     <Project Path="src/DiscordControlCenter.Infrastructure/DiscordControlCenter.Infrastructure.csproj" />
     <Project Path="src/DiscordControlCenter.UiHarness/DiscordControlCenter.UiHarness.csproj" />
+    <Project Path="src/DiscordControlCenter.UiAutomationProbe/DiscordControlCenter.UiAutomationProbe.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/DiscordControlCenter.App.Tests/DiscordControlCenter.App.Tests.csproj" />

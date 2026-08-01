@@ -41,6 +41,24 @@ Application data is stored under `%LOCALAPPDATA%\DiscordControlCenter`. Tokens a
 protected for the current Windows user with DPAPI `CurrentUser`, are always masked in
 the UI, and are never written to logs.
 
+## Production-window diagnostics
+
+`DiscordControlCenter.UiAutomationProbe` is an internal, bounded diagnostic utility.
+It launches only the exact local Release `DiscordControlCenter.App.exe` with
+`--ui-automation-probe`, then reports native HWND and UI Automation facts for the
+real production main window. That mode shows the window but skips host startup,
+persistence initialization, and all Discord initialization. It does not read tokens,
+database contents, or message content, and it does not activate any Discord action.
+
+```powershell
+dotnet run --project src/DiscordControlCenter.UiAutomationProbe/DiscordControlCenter.UiAutomationProbe.csproj --configuration Release --no-build
+```
+
+The main window has a normal visible top-level HWND, `ShowInTaskbar=True`, a stable
+title, and stable automation IDs for the root, main navigation, Messages navigation,
+and the Manual Approvals queue/history controls. Its custom `WindowChrome` does not
+persist placement, so there is no saved off-screen placement to recover.
+
 ## Scheduled-message manual approvals
 
 Missed scheduled occurrences awaiting a decision retain an immutable, versioned delivery

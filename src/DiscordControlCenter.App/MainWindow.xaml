@@ -4,6 +4,8 @@
         xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Title="Discord Control Center"
+        automation:AutomationProperties.Name="Discord Control Center"
+        automation:AutomationProperties.AutomationId="DiscordControlCenter.MainWindow"
         Width="1420"
         Height="860"
         MinWidth="1040"
@@ -11,6 +13,7 @@
         WindowStyle="None"
         ResizeMode="CanResize"
         WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="True"
         PreviewKeyDown="OnPreviewKeyDown"
         StateChanged="OnWindowStateChanged">
     <shell:WindowChrome.WindowChrome>
@@ -38,13 +41,16 @@
                 </StackPanel>
                 <Button Grid.Column="1" Content="—" Click="OnMinimizeClick" Style="{StaticResource TitleBarButtonStyle}"
                         ToolTip="Minimize" automation:AutomationProperties.Name="Minimize window"
+                        automation:AutomationProperties.AutomationId="DiscordControlCenter.Window.Minimize"
                         shell:WindowChrome.IsHitTestVisibleInChrome="True" />
                 <Button Grid.Column="2" Content="□" Click="OnMaximizeRestoreClick" Style="{StaticResource TitleBarButtonStyle}"
                         x:Name="MaximizeRestoreButton"
                         ToolTip="Maximize or restore" automation:AutomationProperties.Name="Maximize or restore window"
+                        automation:AutomationProperties.AutomationId="DiscordControlCenter.Window.MaximizeRestore"
                         shell:WindowChrome.IsHitTestVisibleInChrome="True" />
                 <Button Grid.Column="3" Content="×" Click="OnCloseClick" Style="{StaticResource TitleBarCloseButtonStyle}"
                         ToolTip="Close" automation:AutomationProperties.Name="Close window"
+                        automation:AutomationProperties.AutomationId="DiscordControlCenter.Window.Close"
                         shell:WindowChrome.IsHitTestVisibleInChrome="True" />
             </Grid>
         </Border>
@@ -91,7 +97,9 @@
                 </Border>
                 <ScrollViewer VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled">
-                    <ItemsControl ItemsSource="{Binding Navigation}">
+                    <ItemsControl ItemsSource="{Binding Navigation}"
+                                  automation:AutomationProperties.Name="Main navigation"
+                                  automation:AutomationProperties.AutomationId="DiscordControlCenter.Navigation">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <Button Command="{Binding DataContext.NavigateCommand, RelativeSource={RelativeSource AncestorType=Window}}"
@@ -99,7 +107,8 @@
                                         Style="{StaticResource NavigationButtonStyle}"
                                         Margin="10,2"
                                         ToolTip="{Binding Label}"
-                                        automation:AutomationProperties.Name="{Binding Label}">
+                                        automation:AutomationProperties.Name="{Binding Label}"
+                                        automation:AutomationProperties.AutomationId="{Binding AutomationId}">
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="30" />
