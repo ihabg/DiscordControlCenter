@@ -422,6 +422,35 @@ public sealed class SqliteScheduledMessageRepository(SqliteConnectionFactory con
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<bool> TrySaveAsync(ScheduledMessageDefinition definition, int expectedRevision, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (expectedRevision < 0 || definition.Revision != expectedRevision + 1)
+        {
+            throw new ArgumentException("The proposed schedule revision is invalid.", nameof(definition));
+        }
+
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            INSERT INTO ScheduledMessages (Id, BotProfileId, ServerId, ScheduleName, IsEnabled, DefinitionJson, CreatedAt, UpdatedAt)
+            VALUES ($id, $botId, $serverId, $scheduleName, $enabled, $definition, $createdAt, $updatedAt)
+            ON CONFLICT(Id) DO UPDATE SET ScheduleName = excluded.ScheduleName, IsEnabled = excluded.IsEnabled, DefinitionJson = excluded.DefinitionJson, UpdatedAt = excluded.UpdatedAt
+            WHERE CAST(COALESCE(json_extract(ScheduledMessages.DefinitionJson, '$.revision'), 1) AS INTEGER) = $expectedRevision;
+            """;
+        command.Parameters.AddWithValue("$id", definition.Id.ToString("D"));
+        command.Parameters.AddWithValue("$botId", definition.BotProfileId.ToString("D"));
+        command.Parameters.AddWithValue("$serverId", definition.Destination.ServerId.ToString(CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$scheduleName", string.IsNullOrWhiteSpace(definition.Name) ? "Untitled schedule" : definition.Name.Trim());
+        command.Parameters.AddWithValue("$enabled", definition.IsEnabled ? 1 : 0);
+        command.Parameters.AddWithValue("$definition", JsonSerializer.Serialize(definition, JsonOptions));
+        command.Parameters.AddWithValue("$createdAt", definition.StartAt.ToString("O"));
+        command.Parameters.AddWithValue("$updatedAt", DateTimeOffset.UtcNow.ToString("O"));
+        command.Parameters.AddWithValue("$expectedRevision", expectedRevision);
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
+    }
+
     public async Task<bool> TryReserveOccurrenceAsync(ScheduledMessageOccurrence occurrence, CancellationToken cancellationToken)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);

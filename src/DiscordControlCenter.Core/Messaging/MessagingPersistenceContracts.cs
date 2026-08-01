@@ -34,6 +34,7 @@ public interface IScheduledMessageRepository
     Task<IReadOnlyList<ScheduledMessageOccurrenceListItem>> ListRecentOccurrencesAsync(Guid botProfileId, ulong serverId, Guid scheduleId, int limit, CancellationToken cancellationToken);
     Task<ScheduledMessageDefinition?> GetScheduleAsync(Guid scheduleId, CancellationToken cancellationToken);
     Task SaveAsync(ScheduledMessageDefinition definition, CancellationToken cancellationToken);
+    Task<bool> TrySaveAsync(ScheduledMessageDefinition definition, int expectedRevision, CancellationToken cancellationToken);
     Task<bool> TryReserveOccurrenceAsync(ScheduledMessageOccurrence occurrence, CancellationToken cancellationToken);
     Task CompleteOccurrenceAsync(ScheduledMessageOccurrence occurrence, CancellationToken cancellationToken);
     Task<IReadOnlyList<ScheduledMessageApproval>> ListPendingApprovalsAsync(Guid? botProfileId, ulong? serverId, CancellationToken cancellationToken);

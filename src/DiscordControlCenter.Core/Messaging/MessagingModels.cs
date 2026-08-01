@@ -289,6 +289,9 @@ public sealed record ScheduledMessageDefinition(
     // makes the read model backward-compatible while allowing historical states to be shown
     // faithfully when they are present in saved metadata.
     public ScheduledMessageLifecycle? SavedLifecycle { get; init; }
+
+    /// <summary>Monotonic local version used for guarded schedule edits.</summary>
+    public int Revision { get; init; } = 1;
 }
 
 public sealed record ScheduledMessageOccurrence(
