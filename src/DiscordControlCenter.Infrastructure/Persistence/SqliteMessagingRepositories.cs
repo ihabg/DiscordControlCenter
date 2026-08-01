@@ -455,6 +455,26 @@ public sealed class SqliteScheduledMessageRepository(SqliteConnectionFactory con
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
     }
 
+    public async Task<ScheduledMessageDependencySummary> GetDependencySummaryAsync(Guid scheduleId, CancellationToken cancellationToken)
+    {
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*), SUM(CASE WHEN ImmutableDeliverySnapshotJson IS NOT NULL THEN 1 ELSE 0 END), SUM(CASE WHEN State = 'PendingApproval' THEN 1 ELSE 0 END), SUM(CASE WHEN State <> 'PendingApproval' THEN 1 ELSE 0 END) FROM ScheduledMessageOccurrences WHERE ScheduledMessageId = $scheduleId;";
+        command.Parameters.AddWithValue("$scheduleId", scheduleId.ToString("D"));
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+        return new(reader.GetInt32(0), reader.IsDBNull(1) ? 0 : reader.GetInt32(1), reader.IsDBNull(2) ? 0 : reader.GetInt32(2), reader.IsDBNull(3) ? 0 : reader.GetInt32(3));
+    }
+
+    public async Task<bool> TryDeleteAsync(Guid scheduleId, int expectedRevision, CancellationToken cancellationToken)
+    {
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM ScheduledMessages WHERE Id = $id AND NOT EXISTS (SELECT 1 FROM ScheduledMessageOccurrences WHERE ScheduledMessageId = $id) AND CAST(COALESCE(json_extract(DefinitionJson, '$.revision'), 1) AS INTEGER) = $expectedRevision;";
+        command.Parameters.AddWithValue("$id", scheduleId.ToString("D")); command.Parameters.AddWithValue("$expectedRevision", expectedRevision);
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
+    }
+
     public async Task<bool> TryReserveOccurrenceAsync(ScheduledMessageOccurrence occurrence, CancellationToken cancellationToken)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);

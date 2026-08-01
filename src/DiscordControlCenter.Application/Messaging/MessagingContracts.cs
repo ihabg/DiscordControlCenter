@@ -184,3 +184,19 @@ public interface IScheduledMessageDraftService
     Task<ScheduledDraftValidation> ValidateAsync(ScheduledMessageDefinition definition, CancellationToken cancellationToken);
     Task<ScheduledDraftSaveResult> SaveAsync(ScheduledMessageDefinition definition, int expectedRevision, CancellationToken cancellationToken);
 }
+
+public enum ScheduledLifecycleOperation { Enable, Disable, ReEnable, Archive, Delete }
+public sealed record ScheduledLifecycleRequest(Guid BotProfileId, ulong ServerId, Guid ScheduleId, int ExpectedRevision);
+public sealed record ScheduledDeleteEligibility(bool CanDelete, ScheduledMessageLifecycle Lifecycle, ScheduledMessageDependencySummary Dependencies, string Explanation, string? SafeAlternative);
+public sealed record ScheduledLifecycleResult(bool Success, bool Conflict, ScheduledMessageLifecycle CurrentLifecycle, ScheduledMessageLifecycle? NewLifecycle, int CurrentRevision, int? NewRevision, ScheduledDraftValidation? Validation, string? FailureCategory, string Explanation, ScheduledDeleteEligibility? DeleteEligibility = null);
+public interface IScheduledMessageLifecycleService
+{
+    Task<ScheduledLifecycleResult> ValidateEnableAsync(ScheduledLifecycleRequest request, CancellationToken cancellationToken);
+    Task<ScheduledLifecycleResult> EnableAsync(ScheduledLifecycleRequest request, CancellationToken cancellationToken);
+    Task<ScheduledLifecycleResult> DisableAsync(ScheduledLifecycleRequest request, CancellationToken cancellationToken);
+    Task<ScheduledLifecycleResult> ValidateReEnableAsync(ScheduledLifecycleRequest request, CancellationToken cancellationToken);
+    Task<ScheduledLifecycleResult> ReEnableAsync(ScheduledLifecycleRequest request, CancellationToken cancellationToken);
+    Task<ScheduledLifecycleResult> ArchiveAsync(ScheduledLifecycleRequest request, CancellationToken cancellationToken);
+    Task<ScheduledDeleteEligibility> GetDeleteEligibilityAsync(ScheduledLifecycleRequest request, CancellationToken cancellationToken);
+    Task<ScheduledLifecycleResult> DeleteAsync(ScheduledLifecycleRequest request, CancellationToken cancellationToken);
+}

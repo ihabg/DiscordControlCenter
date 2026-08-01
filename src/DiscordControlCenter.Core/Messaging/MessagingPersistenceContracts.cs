@@ -35,6 +35,8 @@ public interface IScheduledMessageRepository
     Task<ScheduledMessageDefinition?> GetScheduleAsync(Guid scheduleId, CancellationToken cancellationToken);
     Task SaveAsync(ScheduledMessageDefinition definition, CancellationToken cancellationToken);
     Task<bool> TrySaveAsync(ScheduledMessageDefinition definition, int expectedRevision, CancellationToken cancellationToken);
+    Task<ScheduledMessageDependencySummary> GetDependencySummaryAsync(Guid scheduleId, CancellationToken cancellationToken);
+    Task<bool> TryDeleteAsync(Guid scheduleId, int expectedRevision, CancellationToken cancellationToken);
     Task<bool> TryReserveOccurrenceAsync(ScheduledMessageOccurrence occurrence, CancellationToken cancellationToken);
     Task CompleteOccurrenceAsync(ScheduledMessageOccurrence occurrence, CancellationToken cancellationToken);
     Task<IReadOnlyList<ScheduledMessageApproval>> ListPendingApprovalsAsync(Guid? botProfileId, ulong? serverId, CancellationToken cancellationToken);
@@ -43,4 +45,9 @@ public interface IScheduledMessageRepository
     Task<ScheduledMessageApproval?> GetApprovalAsync(Guid occurrenceId, CancellationToken cancellationToken);
     Task<bool> TryClaimApprovalAsync(Guid occurrenceId, Guid correlationId, CancellationToken cancellationToken);
     Task<bool> TryDecideApprovalAsync(Guid occurrenceId, MessageOperationState terminalState, string decision, string? safeFailureCode, CancellationToken cancellationToken);
+}
+
+public sealed record ScheduledMessageDependencySummary(int Occurrences, int ImmutableSnapshots, int PendingApprovals, int TerminalHistory)
+{
+    public bool HasDependencies => Occurrences > 0 || ImmutableSnapshots > 0 || PendingApprovals > 0 || TerminalHistory > 0;
 }

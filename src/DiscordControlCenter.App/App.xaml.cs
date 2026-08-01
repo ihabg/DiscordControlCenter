@@ -119,6 +119,7 @@ public partial class App : System.Windows.Application
                         services.AddSingleton<IScheduledMessageService, ScheduledMessageService>();
                         services.AddSingleton<IScheduledMessageQueryService, ScheduledMessageQueryService>();
                         services.AddSingleton<IScheduledMessageDraftService, ScheduledMessageDraftService>();
+                        services.AddSingleton<IScheduledMessageLifecycleService, ScheduledMessageLifecycleService>();
                         services.AddSingleton<IDraftDiscardConfirmationService, DraftDiscardConfirmationService>();
                         services.AddSingleton<IScheduledMessageRepository, SqliteScheduledMessageRepository>();
                         services.AddSingleton<IScheduledMessageScheduler, ScheduledMessageScheduler>();
