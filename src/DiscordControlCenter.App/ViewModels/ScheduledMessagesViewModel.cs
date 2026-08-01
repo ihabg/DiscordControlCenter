@@ -24,6 +24,7 @@ public sealed class ScheduledMessagesViewModel : ObservableObject, IDisposable
     private bool _draftSaving;
     private string? _draftMessage;
     private ScheduledChoice<ulong>? _draftDestination;
+    private bool _draftConflict;
     private Guid? _botId;
     private ulong? _serverId;
     private string _botName = "No bot selected";
@@ -82,6 +83,9 @@ public sealed class ScheduledMessagesViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand NewDraftCommand { get; }
     public AsyncRelayCommand SaveDraftCommand { get; }
     public AsyncRelayCommand ValidateDraftCommand { get; }
+    public AsyncRelayCommand EditDraftCommand { get; }
+    public AsyncRelayCommand ReloadDraftCommand { get; }
+    public RelayCommand CancelDraftCommand { get; }
     public event EventHandler<string>? MessagesSectionRequested;
 
     public ScheduledMessagesViewModel(IScheduledMessageQueryService service, IScheduledMessageDraftService? drafts = null)
@@ -99,6 +103,9 @@ public sealed class ScheduledMessagesViewModel : ObservableObject, IDisposable
         NewDraftCommand = new AsyncRelayCommand(NewDraftAsync, () => CanEditDraft);
         SaveDraftCommand = new AsyncRelayCommand(SaveDraftAsync, () => CanEditDraft && Draft is not null && !IsDraftSaving);
         ValidateDraftCommand = new AsyncRelayCommand(ValidateDraftAsync, () => CanEditDraft && Draft is not null && !IsDraftSaving);
+        EditDraftCommand = new AsyncRelayCommand(EditDraftAsync, () => CanEditDraft && SelectedSchedule?.Lifecycle == ScheduledMessageLifecycle.Draft && !IsDraftSaving);
+        ReloadDraftCommand = new AsyncRelayCommand(ReloadDraftAsync, () => CanEditDraft && Draft is not null && !IsDraftSaving);
+        CancelDraftCommand = new RelayCommand(_ => { Draft = null; DraftMessage = "Draft editor closed without saving."; DraftConflict = false; });
     }
 
     public string Search { get => _search; set { if (SetProperty(ref _search, value)) ResetPage(); } }
@@ -139,9 +146,11 @@ public sealed class ScheduledMessagesViewModel : ObservableObject, IDisposable
     public bool IsDraftSaving { get => _draftSaving; private set { if (SetProperty(ref _draftSaving, value)) SaveDraftCommand.NotifyCanExecuteChanged(); } }
     public string? DraftMessage { get => _draftMessage; private set => SetProperty(ref _draftMessage, value); }
     public bool CanEditDraft => drafts is not null && _botId is not null && _serverId is not null;
+    public bool DraftConflict { get => _draftConflict; private set { if (SetProperty(ref _draftConflict, value)) { SaveDraftCommand.NotifyCanExecuteChanged(); ReloadDraftCommand.NotifyCanExecuteChanged(); } } }
     public string DraftName { get => Draft?.Name ?? string.Empty; set { if (Draft is not null) Draft = Draft with { Name = value }; } }
     public string DraftBody { get => Draft?.InlineContent?.Body ?? string.Empty; set { if (Draft is not null) Draft = Draft with { InlineContent = new MessageContent(value, null, AllowedMentionPolicy.None), TemplateId = null }; } }
     public string DraftTimeZone { get => Draft?.TimeZoneId ?? string.Empty; set { if (Draft is not null) Draft = Draft with { TimeZoneId = value }; } }
+    public ScheduledChoice<ScheduledMessageRecurrence>? SelectedDraftRecurrence { get; set; }
     public ScheduledChoice<ulong>? SelectedDraftDestination { get => _draftDestination; set { if (SetProperty(ref _draftDestination, value) && Draft is not null && value is { IsAny: false, Value: ulong channel }) Draft = Draft with { Destination = MessageDestination.Channel(_serverId ?? 0, _serverName, channel, value.Label) }; } }
 
     public void SetContext(Guid? botId, string? botName, ulong? serverId, string? serverName)
@@ -242,7 +251,7 @@ public sealed class ScheduledMessagesViewModel : ObservableObject, IDisposable
     private Task NewDraftAsync(CancellationToken token)
     {
         if (drafts is null || _botId is not Guid bot || _serverId is not ulong server) return Task.CompletedTask;
-        Draft = drafts.CreateDraft(bot, MessageDestination.Channel(server, _serverName, 0, "Select a destination")); _draftRevision = 0; DraftMessage = "New draft. Select a destination and message source, then validate."; return Task.CompletedTask;
+        Draft = drafts.CreateDraft(bot, MessageDestination.Channel(server, _serverName, 0, "Select a destination")); SelectedDraftRecurrence = Recurrences.Single(item => item.Value == Draft.Recurrence); _draftRevision = 0; DraftMessage = "New draft. Select a destination and message source, then validate."; return Task.CompletedTask;
     }
     private async Task ValidateDraftAsync(CancellationToken token)
     {
@@ -250,7 +259,19 @@ public sealed class ScheduledMessagesViewModel : ObservableObject, IDisposable
     }
     private async Task SaveDraftAsync(CancellationToken token)
     {
-        if (drafts is null || Draft is null) return; IsDraftSaving = true; try { var result = await drafts.SaveAsync(Draft, _draftRevision, token).ConfigureAwait(false); DraftMessage = result.Message; if (result.Saved && result.Definition is not null) { Draft = result.Definition; _draftRevision = result.Definition.Revision; await LoadAsync(token).ConfigureAwait(false); SelectedSchedule = Schedules.FirstOrDefault(item => item.Id == result.Definition.Id); } } finally { IsDraftSaving = false; }
+        if (drafts is null || Draft is null || DraftConflict) return; IsDraftSaving = true; try { var result = await drafts.SaveAsync(Draft, _draftRevision, token).ConfigureAwait(false); DraftMessage = result.Message; DraftConflict = result.Conflict; if (result.Saved && result.Definition is not null) { Draft = result.Definition; _draftRevision = result.Definition.Revision; await LoadAsync(token).ConfigureAwait(false); SelectedSchedule = Schedules.FirstOrDefault(item => item.Id == result.Definition.Id); } } finally { IsDraftSaving = false; }
+    }
+    private async Task EditDraftAsync(CancellationToken token)
+    {
+        if (drafts is null || SelectedSchedule is null || _botId is not Guid bot || _serverId is not ulong server) return;
+        var loaded = await drafts.LoadAsync(bot, server, SelectedSchedule.Id, token).ConfigureAwait(false); if (loaded is null || loaded.SavedLifecycle != ScheduledMessageLifecycle.Draft) { DraftMessage = "Only an available Draft schedule can be edited."; return; }
+        Draft = loaded; SelectedDraftRecurrence = Recurrences.Single(item => item.Value == loaded.Recurrence); _draftRevision = loaded.Revision; DraftConflict = false; DraftMessage = $"Editing Draft revision {loaded.Revision}.";
+    }
+    private async Task ReloadDraftAsync(CancellationToken token)
+    {
+        if (drafts is null || Draft is null || _botId is not Guid bot || _serverId is not ulong server) return;
+        var loaded = await drafts.LoadAsync(bot, server, Draft.Id, token).ConfigureAwait(false); if (loaded is null) { DraftMessage = "The latest Draft is unavailable."; return; }
+        Draft = loaded; _draftRevision = loaded.Revision; DraftConflict = false; DraftMessage = "Reloaded the latest Draft. Earlier unsaved values were not saved."; await ValidateDraftAsync(token).ConfigureAwait(false);
     }
 
     public void Dispose()
