@@ -14,4 +14,5 @@ public interface IDiscordBotClient : IAsyncDisposable, IDiscordChannelWriterClie
     Task DisconnectAsync(CancellationToken cancellationToken);
     Task<ExplorerCacheUpdate> RefreshExplorerAsync(CancellationToken cancellationToken);
     Task LoadMembersAsync(ulong serverId, CancellationToken cancellationToken);
+    Task<bool> MessageExistsAsync(ulong channelId, ulong messageId, CancellationToken cancellationToken);
 }

@@ -164,6 +164,14 @@ public sealed class DiscordBotClient : IDiscordBotClient
             cancellationToken);
     }
 
+    public async Task<bool> MessageExistsAsync(ulong channelId, ulong messageId, CancellationToken cancellationToken)
+    {
+        var channel = _client.GetChannel(channelId) as IMessageChannel;
+        if (channel is null) return false;
+        var message = await channel.GetMessageAsync(messageId, CacheMode.AllowDownload, new RequestOptions { CancelToken = cancellationToken }).ConfigureAwait(false);
+        return message is not null;
+    }
+
     public async Task LoadMembersAsync(ulong serverId, CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);

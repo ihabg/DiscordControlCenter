@@ -59,6 +59,25 @@ title, and stable automation IDs for the root, main navigation, Messages navigat
 and the Manual Approvals queue/history controls. Its custom `WindowChrome` does not
 persist placement, so there is no saved off-screen placement to recover.
 
+## Guarded live approval validation
+
+`DiscordControlCenter.LiveValidation` is an internal, non-packable and non-publishable
+acceptance runner. It uses the existing bot profile, connection manager, scheduled
+approval service, guarded delivery executor, and SQLite repositories; it has no
+alternate Discord client or direct message-writer path. It refuses every server except
+the private disposable server named `teast` and requires all three explicit arguments:
+
+```powershell
+dotnet run --project src/DiscordControlCenter.LiveValidation/DiscordControlCenter.LiveValidation.csproj -- --server-name teast --confirm "VALIDATE TEAST" --allow-discord-write true
+```
+
+It validates the fourteen approval checks, exactly-once approval, duplicate rejection,
+Skip, Archive, content-free terminal history, and bot disconnection. It creates only a
+missing `dcc-live-validation` text channel through the normal channel-operation
+planner/executor and deletes only a channel it created. Output never includes tokens,
+authorization values, raw payloads, or message text. SoundPad is outside this runner's
+scope and is explicitly rejected by its argument guard.
+
 ## Scheduled-message manual approvals
 
 Missed scheduled occurrences awaiting a decision retain an immutable, versioned delivery

@@ -115,6 +115,8 @@ public sealed class BotConnectionManagerTests
             return Task.CompletedTask;
         }
 
+        public Task<bool> MessageExistsAsync(ulong channelId, ulong messageId, CancellationToken cancellationToken) => Task.FromResult(false);
+
         public Task<ChannelWriteOutcome> CreateCategoryAsync(
             ulong serverId,
             ChannelOperationStateSnapshot after,

@@ -42,6 +42,23 @@ skipping the host, persistence, and Discord initialization. It inspects only win
 metadata and named controls; the only permitted UI interaction is invoking the
 Messages navigation item so the Manual Approvals surface can be checked.
 
+## Guarded live approval validation
+
+`DiscordControlCenter.LiveValidation` composes the same production persistence,
+connection, explorer, message-plan, preflight, delivery, and scheduled-approval
+services used by the application. The console entry point itself never resolves the
+low-level message writer. Its fixed safety gate accepts only `teast`, the exact
+`VALIDATE TEAST` confirmation, and an explicit write flag. It selects no fallback
+server and rejects zero or multiple exact matches.
+
+The runner reserves immutable scheduled occurrences through `IScheduledMessageRepository`,
+executes approval through `IScheduledApprovalService`, and relies on the delivery
+executor's just-before-send preflight and repository compare-and-set transition. Skip
+and Archive use their normal terminal transitions. The temporary channel path uses the
+existing channel-operation planner and executor, and cleanup only deletes a channel
+created by that run before disconnecting the bot. This project is `IsPackable=false`
+and `IsPublishable=false`; it is not part of production packaging.
+
 ## Guarded write boundary
 
 The write dependency direction is:

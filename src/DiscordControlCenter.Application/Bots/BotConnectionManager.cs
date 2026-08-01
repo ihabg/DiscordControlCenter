@@ -22,6 +22,7 @@ public sealed class BotConnectionManager(
     , IBotExplorerService
     , IDiscordChannelWriter
     , IDiscordMessageWriter
+    , ILiveValidationMessageVerifier
 {
     private readonly ConcurrentDictionary<Guid, BotRuntime> _runtimes = new();
     private readonly ConcurrentDictionary<Guid, BotConnectionSnapshot> _snapshots = new();
@@ -501,6 +502,14 @@ public sealed class BotConnectionManager(
             plan.BotProfileId,
             client => client.SendDirectMessageAsync(plan, cancellationToken),
             cancellationToken);
+
+    public async Task<bool> MessageExistsAsync(Guid botProfileId, ulong channelId, ulong messageId, CancellationToken cancellationToken)
+    {
+        if (!_runtimes.TryGetValue(botProfileId, out var runtime)) return false;
+        await runtime.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try { return runtime.Client.Snapshot.State == BotConnectionState.Connected && await runtime.Client.MessageExistsAsync(channelId, messageId, cancellationToken).ConfigureAwait(false); }
+        finally { runtime.Gate.Release(); }
+    }
 
     public async ValueTask DisposeAsync()
     {

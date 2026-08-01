@@ -7,11 +7,13 @@
     <Project Path="src/DiscordControlCenter.Infrastructure/DiscordControlCenter.Infrastructure.csproj" />
     <Project Path="src/DiscordControlCenter.UiHarness/DiscordControlCenter.UiHarness.csproj" />
     <Project Path="src/DiscordControlCenter.UiAutomationProbe/DiscordControlCenter.UiAutomationProbe.csproj" />
+    <Project Path="src/DiscordControlCenter.LiveValidation/DiscordControlCenter.LiveValidation.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/DiscordControlCenter.App.Tests/DiscordControlCenter.App.Tests.csproj" />
     <Project Path="tests/DiscordControlCenter.Application.Tests/DiscordControlCenter.Application.Tests.csproj" />
     <Project Path="tests/DiscordControlCenter.Core.Tests/DiscordControlCenter.Core.Tests.csproj" />
     <Project Path="tests/DiscordControlCenter.UiHarness.Tests/DiscordControlCenter.UiHarness.Tests.csproj" />
+    <Project Path="tests/DiscordControlCenter.LiveValidation.Tests/DiscordControlCenter.LiveValidation.Tests.csproj" />
   </Folder>
 </Solution>
