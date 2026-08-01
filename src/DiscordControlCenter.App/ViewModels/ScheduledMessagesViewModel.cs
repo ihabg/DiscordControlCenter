@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using DiscordControlCenter.App.Mvvm;
 using DiscordControlCenter.Application.Messaging;
 using DiscordControlCenter.Core.Messaging;
@@ -25,6 +26,9 @@ public sealed class ScheduledMessagesViewModel : ObservableObject, IDisposable
     private string? _draftMessage;
     private ScheduledChoice<ulong>? _draftDestination;
     private bool _draftConflict;
+    private ScheduledMessageDefinition? _draftBaseline;
+    private ScheduledChoice<ScheduledMessageRecurrence>? _draftRecurrence;
+    private ScheduledChoice<string>? _draftTimeZone;
     private Guid? _botId;
     private ulong? _serverId;
     private string _botName = "No bot selected";
@@ -63,6 +67,7 @@ public sealed class ScheduledMessagesViewModel : ObservableObject, IDisposable
     public ObservableCollection<ScheduledMessageOccurrenceListItem> RecentOccurrences { get; } = [];
     public ObservableCollection<ScheduledChoice<Guid>> Templates { get; } = [new("Any template", default, true)];
     public ObservableCollection<ScheduledChoice<ulong>> Destinations { get; } = [new("Any destination", default, true)];
+    public ObservableCollection<ScheduledChoice<string>> DraftTimeZones { get; } = new(TimeZoneInfo.GetSystemTimeZones().Select(zone => new ScheduledChoice<string>($"{zone.DisplayName} ({zone.Id})", zone.Id)));
     public IReadOnlyList<ScheduledChoice<ScheduledMessageLifecycle>> Lifecycles { get; } =
     [new("Any lifecycle", default, true), new("Draft", ScheduledMessageLifecycle.Draft), new("Enabled", ScheduledMessageLifecycle.Enabled), new("Disabled", ScheduledMessageLifecycle.Disabled), new("Needs attention", ScheduledMessageLifecycle.Faulted), new("Expired", ScheduledMessageLifecycle.Expired), new("Archived", ScheduledMessageLifecycle.Archived)];
     public IReadOnlyList<ScheduledChoice<ScheduledMessageRecurrence>> Recurrences { get; } =
@@ -147,10 +152,18 @@ public sealed class ScheduledMessagesViewModel : ObservableObject, IDisposable
     public string? DraftMessage { get => _draftMessage; private set => SetProperty(ref _draftMessage, value); }
     public bool CanEditDraft => drafts is not null && _botId is not null && _serverId is not null;
     public bool DraftConflict { get => _draftConflict; private set { if (SetProperty(ref _draftConflict, value)) { SaveDraftCommand.NotifyCanExecuteChanged(); ReloadDraftCommand.NotifyCanExecuteChanged(); } } }
-    public string DraftName { get => Draft?.Name ?? string.Empty; set { if (Draft is not null) Draft = Draft with { Name = value }; } }
-    public string DraftBody { get => Draft?.InlineContent?.Body ?? string.Empty; set { if (Draft is not null) Draft = Draft with { InlineContent = new MessageContent(value, null, AllowedMentionPolicy.None), TemplateId = null }; } }
-    public string DraftTimeZone { get => Draft?.TimeZoneId ?? string.Empty; set { if (Draft is not null) Draft = Draft with { TimeZoneId = value }; } }
-    public ScheduledChoice<ScheduledMessageRecurrence>? SelectedDraftRecurrence { get; set; }
+    public string DraftName { get => Draft?.Name ?? string.Empty; set => UpdateDraft(item => item with { Name = value }); }
+    public string DraftBody { get => Draft?.InlineContent?.Body ?? string.Empty; set => UpdateDraft(item => item with { InlineContent = new MessageContent(value, null, AllowedMentionPolicy.None), TemplateId = null }); }
+    public string DraftTimeZone { get => Draft?.TimeZoneId ?? string.Empty; set => UpdateDraft(item => item with { TimeZoneId = value }); }
+    public ScheduledChoice<string>? SelectedDraftTimeZone { get => _draftTimeZone; set { if (SetProperty(ref _draftTimeZone, value) && value is { IsAny: false, Value: var zone } && !string.IsNullOrWhiteSpace(zone)) DraftTimeZone = zone; } }
+    public ScheduledChoice<ScheduledMessageRecurrence>? SelectedDraftRecurrence { get => _draftRecurrence; set { if (SetProperty(ref _draftRecurrence, value) && value is { IsAny: false, Value: var recurrence }) UpdateDraft(item => item with { Recurrence = recurrence, Weekdays = recurrence == ScheduledMessageRecurrence.Weekly ? [DayOfWeek.Monday] : [] }); } }
+    public DateTime? DraftStartDate { get => Draft?.StartAt.DateTime; set => UpdateDraft(item => item with { StartAt = new DateTimeOffset(value ?? DateTime.UtcNow.Date, TimeSpan.Zero) }); }
+    public DateTime? DraftEndDate { get => Draft?.EndAt?.DateTime; set => UpdateDraft(item => item with { EndAt = value is null ? null : new DateTimeOffset(value.Value, TimeSpan.Zero) }); }
+    public string DraftLocalTime { get => Draft?.LocalTime.ToString("HH:mm", CultureInfo.InvariantCulture) ?? ""; set { if (TimeOnly.TryParse(value, CultureInfo.InvariantCulture, out var time)) UpdateDraft(item => item with { LocalTime = time }); } }
+    public bool Monday { get => Draft?.Weekdays.Contains(DayOfWeek.Monday) == true; set => SetWeekday(DayOfWeek.Monday, value); }
+    public bool Wednesday { get => Draft?.Weekdays.Contains(DayOfWeek.Wednesday) == true; set => SetWeekday(DayOfWeek.Wednesday, value); }
+    public bool Friday { get => Draft?.Weekdays.Contains(DayOfWeek.Friday) == true; set => SetWeekday(DayOfWeek.Friday, value); }
+    public bool IsDraftDirty => Draft is not null && !Equals(Draft, _draftBaseline);
     public ScheduledChoice<ulong>? SelectedDraftDestination { get => _draftDestination; set { if (SetProperty(ref _draftDestination, value) && Draft is not null && value is { IsAny: false, Value: ulong channel }) Draft = Draft with { Destination = MessageDestination.Channel(_serverId ?? 0, _serverName, channel, value.Label) }; } }
 
     public void SetContext(Guid? botId, string? botName, ulong? serverId, string? serverName)
@@ -251,7 +264,7 @@ public sealed class ScheduledMessagesViewModel : ObservableObject, IDisposable
     private Task NewDraftAsync(CancellationToken token)
     {
         if (drafts is null || _botId is not Guid bot || _serverId is not ulong server) return Task.CompletedTask;
-        Draft = drafts.CreateDraft(bot, MessageDestination.Channel(server, _serverName, 0, "Select a destination")); SelectedDraftRecurrence = Recurrences.Single(item => item.Value == Draft.Recurrence); _draftRevision = 0; DraftMessage = "New draft. Select a destination and message source, then validate."; return Task.CompletedTask;
+        Draft = drafts.CreateDraft(bot, MessageDestination.Channel(server, _serverName, 0, "Select a destination")); _draftBaseline = Draft; SelectedDraftTimeZone = DraftTimeZones.FirstOrDefault(item => item.Value == Draft.TimeZoneId); SelectedDraftRecurrence = Recurrences.Single(item => item.Value == Draft.Recurrence); _draftRevision = 0; DraftMessage = "New draft. Select a destination and message source, then validate."; return Task.CompletedTask;
     }
     private async Task ValidateDraftAsync(CancellationToken token)
     {
@@ -259,14 +272,16 @@ public sealed class ScheduledMessagesViewModel : ObservableObject, IDisposable
     }
     private async Task SaveDraftAsync(CancellationToken token)
     {
-        if (drafts is null || Draft is null || DraftConflict) return; IsDraftSaving = true; try { var result = await drafts.SaveAsync(Draft, _draftRevision, token).ConfigureAwait(false); DraftMessage = result.Message; DraftConflict = result.Conflict; if (result.Saved && result.Definition is not null) { Draft = result.Definition; _draftRevision = result.Definition.Revision; await LoadAsync(token).ConfigureAwait(false); SelectedSchedule = Schedules.FirstOrDefault(item => item.Id == result.Definition.Id); } } finally { IsDraftSaving = false; }
+        if (drafts is null || Draft is null || DraftConflict) return; IsDraftSaving = true; try { var result = await drafts.SaveAsync(Draft, _draftRevision, token).ConfigureAwait(false); DraftMessage = result.Message; DraftConflict = result.Conflict; if (result.Saved && result.Definition is not null) { Draft = result.Definition; _draftBaseline = Draft; _draftRevision = result.Definition.Revision; OnPropertyChanged(nameof(IsDraftDirty)); await LoadAsync(token).ConfigureAwait(false); SelectedSchedule = Schedules.FirstOrDefault(item => item.Id == result.Definition.Id); } } finally { IsDraftSaving = false; }
     }
     private async Task EditDraftAsync(CancellationToken token)
     {
         if (drafts is null || SelectedSchedule is null || _botId is not Guid bot || _serverId is not ulong server) return;
         var loaded = await drafts.LoadAsync(bot, server, SelectedSchedule.Id, token).ConfigureAwait(false); if (loaded is null || loaded.SavedLifecycle != ScheduledMessageLifecycle.Draft) { DraftMessage = "Only an available Draft schedule can be edited."; return; }
-        Draft = loaded; SelectedDraftRecurrence = Recurrences.Single(item => item.Value == loaded.Recurrence); _draftRevision = loaded.Revision; DraftConflict = false; DraftMessage = $"Editing Draft revision {loaded.Revision}.";
+        Draft = loaded; _draftBaseline = loaded; SelectedDraftTimeZone = DraftTimeZones.FirstOrDefault(item => item.Value == loaded.TimeZoneId) ?? new ScheduledChoice<string>("Invalid or unavailable saved time zone", loaded.TimeZoneId); SelectedDraftRecurrence = Recurrences.Single(item => item.Value == loaded.Recurrence); _draftRevision = loaded.Revision; DraftConflict = false; OnPropertyChanged(nameof(IsDraftDirty)); DraftMessage = $"Editing Draft revision {loaded.Revision}.";
     }
+    private void UpdateDraft(Func<ScheduledMessageDefinition, ScheduledMessageDefinition> update) { if (Draft is not null) { Draft = update(Draft); OnPropertyChanged(nameof(IsDraftDirty)); } }
+    private void SetWeekday(DayOfWeek day, bool selected) { if (Draft is null) return; var days = Draft.Weekdays.ToHashSet(); if (selected) days.Add(day); else days.Remove(day); UpdateDraft(item => item with { Weekdays = [.. days.Order()] }); }
     private async Task ReloadDraftAsync(CancellationToken token)
     {
         if (drafts is null || Draft is null || _botId is not Guid bot || _serverId is not ulong server) return;
