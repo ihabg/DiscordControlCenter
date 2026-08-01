@@ -147,3 +147,19 @@ public interface IScheduledMessageService
     IReadOnlyList<DateTimeOffset> GetDueOccurrences(ScheduledMessageDefinition definition, DateTimeOffset now);
     DateTimeOffset? GetNextOccurrence(ScheduledMessageDefinition definition, DateTimeOffset now);
 }
+
+public sealed record ScheduledMessageDetail(
+    Guid Id,
+    string Name,
+    ScheduledMessageLifecycle Lifecycle,
+    string LifecycleExplanation,
+    string RecurrenceSummary,
+    string TimeZoneDisplay,
+    string? TimeZoneWarning,
+    ScheduledMessageDefinition Definition);
+
+public interface IScheduledMessageQueryService
+{
+    Task<ScheduledMessagePage> QueryAsync(ScheduledMessageQuery query, CancellationToken cancellationToken);
+    Task<ScheduledMessageDetail?> GetDetailAsync(Guid botProfileId, ulong serverId, Guid scheduleId, CancellationToken cancellationToken);
+}
