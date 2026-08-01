@@ -280,7 +280,11 @@ public sealed record ScheduledMessageDefinition(
     MissedOccurrencePolicy MissedOccurrencePolicy,
     int MaximumRetryCount,
     DateTimeOffset? LastRunAt,
-    DateTimeOffset? NextRunAt);
+    DateTimeOffset? NextRunAt)
+{
+    // Kept separate from immutable outbound content so queue/history rows can remain content-free.
+    public string Name { get; init; } = "Untitled schedule";
+}
 
 public sealed record ScheduledMessageOccurrence(
     Guid Id,
@@ -311,10 +315,35 @@ public sealed record ScheduledDeliverySnapshot(
     int? TemplateVersion,
     DateTimeOffset ReservedAt);
 
-public enum ScheduledApprovalSort { DueAscending, DueDescending, NewestReservation, OldestReservation, ScheduleName, ServerName, State }
+public enum ScheduledApprovalSort { DueAscending, DueDescending, NewestReservation, OldestReservation, ScheduleName, ServerName, State, DecisionNewest, DecisionOldest }
 public enum SnapshotCompatibility { Supported, SupportedLegacy, UnsupportedNewerVersion, Corrupt, MissingRequiredData }
-public sealed record ScheduledApprovalQuery(string? Search, Guid? BotProfileId, ulong? ServerId, Guid? ScheduleId, MessageOperationState? State, DateTimeOffset? FromDue, DateTimeOffset? ToDue, SnapshotCompatibility? Compatibility, ScheduledApprovalSort Sort, int PageNumber, int PageSize);
-public sealed record ScheduledApprovalListItem(Guid OccurrenceId, Guid ScheduleId, string ScheduleName, Guid BotProfileId, ulong ServerId, string ServerName, ulong? ChannelId, string ChannelName, DateTimeOffset DueAt, string TimeZoneId, DateTimeOffset? ReservedAt, MessageOperationState State, Guid? TemplateId, int? TemplateVersion, bool HasContent, bool HasEmbed, bool HasBroadMentionWarning, int SnapshotSchemaVersion, SnapshotCompatibility Compatibility, Guid CorrelationId, string? SafeFailureCode, DateTimeOffset? DecisionAt);
+public sealed record ScheduledApprovalQuery(string? Search, Guid? BotProfileId, ulong? ServerId, Guid? ScheduleId, MessageOperationState? State, DateTimeOffset? FromDue, DateTimeOffset? ToDue, SnapshotCompatibility? Compatibility, ScheduledApprovalSort Sort, int PageNumber, int PageSize)
+{
+    public bool? HasBroadMention { get; init; }
+    public bool? RequiresManualReview { get; init; }
+    public bool HistoryOnly { get; init; }
+    public DateTimeOffset? FromDecision { get; init; }
+    public DateTimeOffset? ToDecision { get; init; }
+}
+public sealed record ScheduledApprovalScheduleOption(Guid ScheduleId, string Name, bool IsDeleted)
+{
+    public string DisplayName => IsDeleted ? "Deleted or unavailable schedule" : Name;
+}
+public sealed record ScheduledApprovalListItem(Guid OccurrenceId, Guid ScheduleId, string ScheduleName, Guid BotProfileId, ulong ServerId, string ServerName, ulong? ChannelId, string ChannelName, DateTimeOffset DueAt, string TimeZoneId, DateTimeOffset? ReservedAt, MessageOperationState State, Guid? TemplateId, int? TemplateVersion, bool HasContent, bool HasEmbed, bool HasBroadMentionWarning, int SnapshotSchemaVersion, SnapshotCompatibility Compatibility, Guid CorrelationId, string? SafeFailureCode, DateTimeOffset? DecisionAt)
+{
+    public string BotDisplayName { get; init; } = "Saved bot";
+    public bool RequiresManualReview => State == MessageOperationState.Uncertain;
+    public string Decision => State switch
+    {
+        MessageOperationState.Delivered => "Delivered",
+        MessageOperationState.Failed => "Failed",
+        MessageOperationState.Uncertain => "Outcome uncertain",
+        MessageOperationState.Skipped => "Skipped",
+        MessageOperationState.Archived => "Archived",
+        MessageOperationState.PendingApproval => "Pending approval",
+        _ => "In review"
+    };
+}
 public sealed record ScheduledApprovalPage(IReadOnlyList<ScheduledApprovalListItem> Items, int TotalCount, int PageNumber, int PageSize, DateTimeOffset QueriedAt);
 
 public sealed record AutomationCondition(

@@ -58,6 +58,26 @@ preflight after an atomic approval claim immediately before any delivery. UI err
 safe summaries only; they never expose tokens, authorization values, raw Discord payloads,
 or REST exception bodies.
 
+Queue search is limited to safe metadata: schedule, saved bot, server, channel, template,
+correlation, and occurrence identifiers. It never searches immutable outbound content. Queue and
+history filters execute in SQLite, use stable occurrence-ID tie-breakers for every sort, and page with
+`LIMIT`/`OFFSET`. Material filter changes return to page one; a terminal decision that empties the
+last page moves to the nearest valid page.
+
+The Manual Approvals panel includes terminal decision history for delivered, failed, uncertain,
+skipped, and archived occurrences. History rows are content-free and expose only safe metadata.
+Selecting a row shows safe timestamps, result, failure category, compatibility, and correlation data.
+An uncertain outcome is manual-review-only and is never resent automatically. Immutable historical
+outbound content can be inspected only after the user deliberately opens it from detail view.
+
+Manual Approvals uses the application toolbar's selected bot and server as an explicit scope; without
+both selections it does not issue a cross-bot query. The schedule selector is populated from safe
+persisted schedule metadata for that scope, includes **All schedules**, and retains a friendly
+**Deleted or unavailable schedule** row when history can no longer resolve its source schedule.
+Queue and terminal-history filters, sorting, paging, selection, and refresh generations are
+independent. The isolated harness covers multi-page pending/history metadata, deleted schedules,
+and manual-review terminal states; it never accesses Discord, production storage, or unrelated apps.
+
 ## Read-only explorers
 
 Choose a saved bot and server in the toolbar after connecting the bot explicitly from

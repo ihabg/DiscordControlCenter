@@ -25,6 +25,11 @@ public sealed class MessageMemberOption(MemberReadModel member)
     public string Username => member.Username;
 }
 
+public sealed record ApprovalChoice<T>(string Label, T Value, bool IsAny = false)
+{
+    public override string ToString() => Label;
+}
+
 public sealed class MessagesViewModel : ObservableObject, IDisposable
 {
     private readonly IBotExplorerService _explorer;
@@ -58,6 +63,44 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
     private int _approvalSelectionVersion;
     private int _approvalPreflightVersion;
     private ScheduledApprovalPreflightResult? _approvalPreflightResult;
+    private string _approvalSearch = string.Empty;
+    private DateTime? _approvalFromDate;
+    private DateTime? _approvalToDate;
+    private ApprovalChoice<MessageOperationState>? _selectedApprovalState;
+    private ApprovalChoice<SnapshotCompatibility>? _selectedApprovalCompatibility;
+    private ApprovalChoice<bool>? _selectedApprovalBroadMention;
+    private ApprovalChoice<bool>? _selectedApprovalManualReview;
+    private ApprovalChoice<ScheduledApprovalSort>? _selectedApprovalSort;
+    private int _approvalPageSize = 25;
+    private int _approvalPageNumber = 1;
+    private int _approvalTotalCount;
+    private bool _isApprovalQueryLoading;
+    private string? _approvalQueryMessage;
+    private int _approvalQueryVersion;
+    private int _approvalScheduleVersion;
+    private ApprovalChoice<Guid>? _selectedApprovalSchedule;
+    private string _historySearch = string.Empty;
+    private DateTime? _historyFromDueDate;
+    private DateTime? _historyToDueDate;
+    private DateTime? _historyFromDecisionDate;
+    private DateTime? _historyToDecisionDate;
+    private ApprovalChoice<Guid>? _selectedHistorySchedule;
+    private ApprovalChoice<MessageOperationState>? _selectedHistoryState;
+    private ApprovalChoice<SnapshotCompatibility>? _selectedHistoryCompatibility;
+    private ApprovalChoice<bool>? _selectedHistoryBroadMention;
+    private ApprovalChoice<bool>? _selectedHistoryManualReview;
+    private ApprovalChoice<ScheduledApprovalSort>? _selectedHistorySort;
+    private int _historyPageSize = 25;
+    private int _historyPageNumber = 1;
+    private int _historyTotalCount;
+    private bool _isHistoryQueryLoading;
+    private string? _historyQueryMessage;
+    private int _historyQueryVersion;
+    private ScheduledApprovalListItem? _selectedHistory;
+    private ScheduledMessageApproval? _historyDetails;
+    private bool _isHistoryDetailsLoading;
+    private bool _historyContentIsOpen;
+    private int _historyDetailVersion;
     private readonly Array _destinationModes = Enum.GetValues<MessageDestinationKind>();
 
     public MessagesViewModel(
@@ -88,6 +131,24 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
         ArchiveApprovalCommand = new AsyncRelayCommand(ArchiveApprovalAsync, () => CanDecidePending, OnCommandError);
         ApproveApprovalCommand = new AsyncRelayCommand(ApproveApprovalAsync, () => CanApproveApproval, OnCommandError);
         RefreshApprovalStatusCommand = new AsyncRelayCommand(RefreshApprovalStatusAsync, () => CanRefreshApprovalStatus, OnCommandError);
+        ApplyApprovalFiltersCommand = new AsyncRelayCommand(ApplyApprovalFiltersAsync, () => !IsApprovalQueryLoading, OnCommandError);
+        ClearApprovalFiltersCommand = new AsyncRelayCommand(ClearApprovalFiltersAsync, () => !IsApprovalQueryLoading, OnCommandError);
+        PreviousApprovalPageCommand = new AsyncRelayCommand(_ => NavigateApprovalPageAsync(ApprovalPageNumber - 1, _), () => CanGoToPreviousApprovalPage, OnCommandError);
+        NextApprovalPageCommand = new AsyncRelayCommand(_ => NavigateApprovalPageAsync(ApprovalPageNumber + 1, _), () => CanGoToNextApprovalPage, OnCommandError);
+        FirstApprovalPageCommand = new AsyncRelayCommand(_ => NavigateApprovalPageAsync(1, _), () => CanGoToPreviousApprovalPage, OnCommandError);
+        LastApprovalPageCommand = new AsyncRelayCommand(_ => NavigateApprovalPageAsync(ApprovalTotalPages, _), () => CanGoToNextApprovalPage, OnCommandError);
+        OpenHistoricalContentCommand = new RelayCommand(_ => { HistoryContentIsOpen = true; }, _ => HistoryDetails?.ImmutableContent is not null);
+        RefreshHistoryCommand = new AsyncRelayCommand(LoadHistoryAsync, () => !IsHistoryQueryLoading, OnCommandError);
+        ApplyHistoryFiltersCommand = new AsyncRelayCommand(ApplyHistoryFiltersAsync, () => !IsHistoryQueryLoading, OnCommandError);
+        ClearHistoryFiltersCommand = new AsyncRelayCommand(ClearHistoryFiltersAsync, () => !IsHistoryQueryLoading, OnCommandError);
+        PreviousHistoryPageCommand = new AsyncRelayCommand(_ => NavigateHistoryPageAsync(HistoryPageNumber - 1, _), () => CanGoToPreviousHistoryPage, OnCommandError);
+        NextHistoryPageCommand = new AsyncRelayCommand(_ => NavigateHistoryPageAsync(HistoryPageNumber + 1, _), () => CanGoToNextHistoryPage, OnCommandError);
+        FirstHistoryPageCommand = new AsyncRelayCommand(_ => NavigateHistoryPageAsync(1, _), () => CanGoToPreviousHistoryPage, OnCommandError);
+        LastHistoryPageCommand = new AsyncRelayCommand(_ => NavigateHistoryPageAsync(HistoryTotalPages, _), () => CanGoToNextHistoryPage, OnCommandError);
+        _selectedApprovalState = ApprovalStates.First(choice => choice.Value == MessageOperationState.PendingApproval);
+        _selectedApprovalSort = ApprovalSorts.First(choice => choice.Value == ScheduledApprovalSort.DueAscending);
+        _selectedHistorySort = HistorySorts.First(choice => choice.Value == ScheduledApprovalSort.DecisionNewest);
+        _selectedHistoryState = ApprovalStates.First(choice => choice.IsAny);
     }
 
     public ObservableCollection<MessageChannelOption> Channels { get; } = [];
@@ -101,7 +162,17 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
     public ObservableCollection<ContentUsageItem> ApprovalEmbedUsage { get; } = [];
     public ObservableCollection<MentionPolicyUsageItem> ApprovalMentionPolicy { get; } = [];
     public ObservableCollection<string> ApprovalUsageWarnings { get; } = [];
+    public ObservableCollection<ScheduledApprovalListItem> ApprovalHistory { get; } = [];
+    public ObservableCollection<ApprovalChoice<Guid>> ApprovalSchedules { get; } = [];
     public Array DestinationModes => _destinationModes;
+    public IReadOnlyList<ApprovalChoice<MessageOperationState>> ApprovalStates { get; } =
+    [new("All states", default, true), new("Pending approval", MessageOperationState.PendingApproval), new("Delivered", MessageOperationState.Delivered), new("Failed", MessageOperationState.Failed), new("Outcome uncertain", MessageOperationState.Uncertain), new("Skipped", MessageOperationState.Skipped), new("Archived", MessageOperationState.Archived)];
+    public IReadOnlyList<ApprovalChoice<SnapshotCompatibility>> ApprovalCompatibilities { get; } =
+    [new("Any compatibility", default, true), new("Supported", SnapshotCompatibility.Supported), new("Supported legacy", SnapshotCompatibility.SupportedLegacy), new("Unsupported newer version", SnapshotCompatibility.UnsupportedNewerVersion), new("Missing required data", SnapshotCompatibility.MissingRequiredData), new("Corrupt", SnapshotCompatibility.Corrupt)];
+    public IReadOnlyList<ApprovalChoice<bool>> ApprovalBooleanChoices { get; } = [new("Any", default, true), new("Yes", true), new("No", false)];
+    public IReadOnlyList<ApprovalChoice<ScheduledApprovalSort>> ApprovalSorts { get; } = [new("Due time — oldest first", ScheduledApprovalSort.DueAscending), new("Due time — newest first", ScheduledApprovalSort.DueDescending), new("Reservation time — newest first", ScheduledApprovalSort.NewestReservation), new("Reservation time — oldest first", ScheduledApprovalSort.OldestReservation), new("Schedule name", ScheduledApprovalSort.ScheduleName), new("Server name", ScheduledApprovalSort.ServerName), new("State", ScheduledApprovalSort.State), new("Decision time — newest first", ScheduledApprovalSort.DecisionNewest)];
+    public IReadOnlyList<ApprovalChoice<ScheduledApprovalSort>> HistorySorts { get; } = [new("Decision time — newest first", ScheduledApprovalSort.DecisionNewest), new("Decision time — oldest first", ScheduledApprovalSort.DecisionOldest), new("Due time — newest first", ScheduledApprovalSort.DueDescending), new("Due time — oldest first", ScheduledApprovalSort.DueAscending), new("Reservation time — newest first", ScheduledApprovalSort.NewestReservation), new("Reservation time — oldest first", ScheduledApprovalSort.OldestReservation), new("Schedule name", ScheduledApprovalSort.ScheduleName), new("Server name", ScheduledApprovalSort.ServerName), new("Terminal state", ScheduledApprovalSort.State)];
+    public IReadOnlyList<int> ApprovalPageSizes { get; } = [10, 25, 50, 100, 200];
 
     public MessageDestinationKind DestinationMode
     {
@@ -126,6 +197,50 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
     public bool IsApprovalDetailsLoading { get => _isApprovalDetailsLoading; private set { if (SetProperty(ref _isApprovalDetailsLoading, value)) NotifyApprovalCommands(); } }
     public bool IsApprovalPreflightLoading { get => _isApprovalPreflightLoading; private set { if (SetProperty(ref _isApprovalPreflightLoading, value)) NotifyApprovalCommands(); } }
     public ScheduledApprovalPreflightResult? ApprovalPreflightResult { get => _approvalPreflightResult; private set { if (SetProperty(ref _approvalPreflightResult, value)) NotifyApprovalCommands(); } }
+    public string ApprovalSearch { get => _approvalSearch; set { if (SetProperty(ref _approvalSearch, value)) ResetApprovalPage(); } }
+    public DateTime? ApprovalFromDate { get => _approvalFromDate; set { if (SetProperty(ref _approvalFromDate, value)) ResetApprovalPage(); } }
+    public DateTime? ApprovalToDate { get => _approvalToDate; set { if (SetProperty(ref _approvalToDate, value)) ResetApprovalPage(); } }
+    public ApprovalChoice<MessageOperationState>? SelectedApprovalState { get => _selectedApprovalState; set { if (SetProperty(ref _selectedApprovalState, value)) ResetApprovalPage(); } }
+    public ApprovalChoice<SnapshotCompatibility>? SelectedApprovalCompatibility { get => _selectedApprovalCompatibility; set { if (SetProperty(ref _selectedApprovalCompatibility, value)) ResetApprovalPage(); } }
+    public ApprovalChoice<bool>? SelectedApprovalBroadMention { get => _selectedApprovalBroadMention; set { if (SetProperty(ref _selectedApprovalBroadMention, value)) ResetApprovalPage(); } }
+    public ApprovalChoice<bool>? SelectedApprovalManualReview { get => _selectedApprovalManualReview; set { if (SetProperty(ref _selectedApprovalManualReview, value)) ResetApprovalPage(); } }
+    public ApprovalChoice<ScheduledApprovalSort>? SelectedApprovalSort { get => _selectedApprovalSort; set { if (SetProperty(ref _selectedApprovalSort, value)) ResetApprovalPage(); } }
+    public ApprovalChoice<Guid>? SelectedApprovalSchedule { get => _selectedApprovalSchedule; set { if (SetProperty(ref _selectedApprovalSchedule, value)) ResetApprovalPage(); } }
+    public int ApprovalPageSize { get => _approvalPageSize; set { if (SetProperty(ref _approvalPageSize, value)) ResetApprovalPage(); } }
+    public int ApprovalPageNumber { get => _approvalPageNumber; private set { if (SetProperty(ref _approvalPageNumber, value)) NotifyApprovalQueryProperties(); } }
+    public int ApprovalTotalCount { get => _approvalTotalCount; private set { if (SetProperty(ref _approvalTotalCount, value)) NotifyApprovalQueryProperties(); } }
+    public int ApprovalTotalPages => Math.Max(1, (int)Math.Ceiling(ApprovalTotalCount / (double)ApprovalPageSize));
+    public bool CanGoToPreviousApprovalPage => !IsApprovalQueryLoading && ApprovalPageNumber > 1;
+    public bool CanGoToNextApprovalPage => !IsApprovalQueryLoading && ApprovalPageNumber < ApprovalTotalPages;
+    public bool IsApprovalQueryLoading { get => _isApprovalQueryLoading; private set { if (SetProperty(ref _isApprovalQueryLoading, value)) NotifyApprovalQueryProperties(); } }
+    public string? ApprovalQueryMessage { get => _approvalQueryMessage; private set => SetProperty(ref _approvalQueryMessage, value); }
+    public string ApprovalFilterSummary => BuildApprovalFilterSummary();
+    public string ApprovalScopeSummary => _botProfileId is null || _serverId is null ? "Select a bot and server in the application toolbar to set the approval scope." : $"Current approval scope follows the application toolbar. Bot: selected saved profile; Server: {_snapshot?.Servers.FirstOrDefault(server => server.Id == _serverId)?.Name ?? "selected server"}.";
+    public ScheduledApprovalListItem? SelectedHistory { get => _selectedHistory; set { if (SetProperty(ref _selectedHistory, value)) _ = LoadHistoryDetailsAsync(); } }
+    public ScheduledMessageApproval? HistoryDetails { get => _historyDetails; private set => SetProperty(ref _historyDetails, value); }
+    public bool IsHistoryDetailsLoading { get => _isHistoryDetailsLoading; private set => SetProperty(ref _isHistoryDetailsLoading, value); }
+    public bool HistoryContentIsOpen { get => _historyContentIsOpen; private set { if (SetProperty(ref _historyContentIsOpen, value)) OpenHistoricalContentCommand.NotifyCanExecuteChanged(); } }
+    public string HistoryManualReviewExplanation => HistoryDetails?.Occurrence.State == MessageOperationState.Uncertain ? "Manual review required. The application will not resend this occurrence automatically." : string.Empty;
+    public string HistorySearch { get => _historySearch; set { if (SetProperty(ref _historySearch, value)) ResetHistoryPage(); } }
+    public DateTime? HistoryFromDueDate { get => _historyFromDueDate; set { if (SetProperty(ref _historyFromDueDate, value)) ResetHistoryPage(); } }
+    public DateTime? HistoryToDueDate { get => _historyToDueDate; set { if (SetProperty(ref _historyToDueDate, value)) ResetHistoryPage(); } }
+    public DateTime? HistoryFromDecisionDate { get => _historyFromDecisionDate; set { if (SetProperty(ref _historyFromDecisionDate, value)) ResetHistoryPage(); } }
+    public DateTime? HistoryToDecisionDate { get => _historyToDecisionDate; set { if (SetProperty(ref _historyToDecisionDate, value)) ResetHistoryPage(); } }
+    public ApprovalChoice<Guid>? SelectedHistorySchedule { get => _selectedHistorySchedule; set { if (SetProperty(ref _selectedHistorySchedule, value)) ResetHistoryPage(); } }
+    public ApprovalChoice<MessageOperationState>? SelectedHistoryState { get => _selectedHistoryState; set { if (SetProperty(ref _selectedHistoryState, value)) ResetHistoryPage(); } }
+    public ApprovalChoice<SnapshotCompatibility>? SelectedHistoryCompatibility { get => _selectedHistoryCompatibility; set { if (SetProperty(ref _selectedHistoryCompatibility, value)) ResetHistoryPage(); } }
+    public ApprovalChoice<bool>? SelectedHistoryBroadMention { get => _selectedHistoryBroadMention; set { if (SetProperty(ref _selectedHistoryBroadMention, value)) ResetHistoryPage(); } }
+    public ApprovalChoice<bool>? SelectedHistoryManualReview { get => _selectedHistoryManualReview; set { if (SetProperty(ref _selectedHistoryManualReview, value)) ResetHistoryPage(); } }
+    public ApprovalChoice<ScheduledApprovalSort>? SelectedHistorySort { get => _selectedHistorySort; set { if (SetProperty(ref _selectedHistorySort, value)) ResetHistoryPage(); } }
+    public int HistoryPageSize { get => _historyPageSize; set { if (SetProperty(ref _historyPageSize, value)) ResetHistoryPage(); } }
+    public int HistoryPageNumber { get => _historyPageNumber; private set { if (SetProperty(ref _historyPageNumber, value)) NotifyHistoryQueryProperties(); } }
+    public int HistoryTotalCount { get => _historyTotalCount; private set { if (SetProperty(ref _historyTotalCount, value)) NotifyHistoryQueryProperties(); } }
+    public int HistoryTotalPages => Math.Max(1, (int)Math.Ceiling(HistoryTotalCount / (double)HistoryPageSize));
+    public bool IsHistoryQueryLoading { get => _isHistoryQueryLoading; private set { if (SetProperty(ref _isHistoryQueryLoading, value)) NotifyHistoryQueryProperties(); } }
+    public bool CanGoToPreviousHistoryPage => !IsHistoryQueryLoading && HistoryPageNumber > 1;
+    public bool CanGoToNextHistoryPage => !IsHistoryQueryLoading && HistoryPageNumber < HistoryTotalPages;
+    public string? HistoryQueryMessage { get => _historyQueryMessage; private set => SetProperty(ref _historyQueryMessage, value); }
+    public string HistoryFilterSummary => string.IsNullOrWhiteSpace(HistorySearch) ? "No active history filters." : "Active history filters: search.";
     public string ApprovalPreflightSummary => IsApprovalPreflightLoading ? "Refreshing current Discord status…" : ApprovalPreflightResult?.Summary ?? "Current Discord status has not been checked.";
     public string ApprovalCheckedAt => ApprovalPreflightResult is null ? "Not checked" : $"Last checked {ApprovalPreflightResult.CheckedAt.LocalDateTime:g}";
     public bool CanApproveApproval => !IsApprovalBusy && !IsApprovalDetailsLoading && !IsApprovalPreflightLoading && ApprovalDetails?.Occurrence.State == MessageOperationState.PendingApproval && ApprovalPreflightResult?.CanSend == true;
@@ -149,6 +264,26 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand ArchiveApprovalCommand { get; }
     public AsyncRelayCommand ApproveApprovalCommand { get; }
     public AsyncRelayCommand RefreshApprovalStatusCommand { get; }
+    public AsyncRelayCommand ApplyApprovalFiltersCommand { get; }
+    public AsyncRelayCommand ClearApprovalFiltersCommand { get; }
+    public AsyncRelayCommand PreviousApprovalPageCommand { get; }
+    public AsyncRelayCommand NextApprovalPageCommand { get; }
+    public AsyncRelayCommand FirstApprovalPageCommand { get; }
+    public AsyncRelayCommand LastApprovalPageCommand { get; }
+    public RelayCommand OpenHistoricalContentCommand { get; }
+    public AsyncRelayCommand RefreshHistoryCommand { get; }
+    public AsyncRelayCommand ApplyHistoryFiltersCommand { get; }
+    public AsyncRelayCommand ClearHistoryFiltersCommand { get; }
+    public AsyncRelayCommand PreviousHistoryPageCommand { get; }
+    public AsyncRelayCommand NextHistoryPageCommand { get; }
+    public AsyncRelayCommand FirstHistoryPageCommand { get; }
+    public AsyncRelayCommand LastHistoryPageCommand { get; }
+
+    private void ResetApprovalPage()
+    {
+        if (ApprovalPageNumber != 1) ApprovalPageNumber = 1;
+        OnPropertyChanged(nameof(ApprovalFilterSummary));
+    }
 
     public void SetContext(Guid? botProfileId, BotConnectionState connectionState, ulong? serverId)
     {
@@ -159,6 +294,8 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
         ApplySnapshot();
         OnPropertyChanged(nameof(HasContext));
         OnPropertyChanged(nameof(ContextMessage));
+        OnPropertyChanged(nameof(ApprovalScopeSummary));
+        _ = LoadApprovalSchedulesAsync(CancellationToken.None);
     }
 
     public void SetConnectionState(BotConnectionState state)
@@ -166,6 +303,7 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
         _connectionState = state;
         OnPropertyChanged(nameof(HasContext));
         OnPropertyChanged(nameof(ContextMessage));
+        OnPropertyChanged(nameof(ApprovalScopeSummary));
     }
 
     public void SetServer(ulong? serverId)
@@ -174,9 +312,10 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
         ApplySnapshot();
         OnPropertyChanged(nameof(HasContext));
         OnPropertyChanged(nameof(ContextMessage));
+        _ = LoadApprovalSchedulesAsync(CancellationToken.None);
     }
 
-    public async Task InitializeAsync(CancellationToken cancellationToken) { await LoadTemplatesAsync(cancellationToken).ConfigureAwait(false); await LoadApprovalsAsync(cancellationToken).ConfigureAwait(false); }
+    public async Task InitializeAsync(CancellationToken cancellationToken) { await LoadTemplatesAsync(cancellationToken).ConfigureAwait(false); await LoadApprovalSchedulesAsync(cancellationToken).ConfigureAwait(false); await LoadApprovalsAsync(cancellationToken).ConfigureAwait(false); await LoadHistoryAsync(cancellationToken).ConfigureAwait(false); }
 
     public void Dispose()
     {
@@ -188,6 +327,9 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
         SendCommand.Dispose();
         RefreshApprovalsCommand.Dispose(); SkipApprovalCommand.Dispose(); ArchiveApprovalCommand.Dispose();
         ApproveApprovalCommand.Dispose(); RefreshApprovalStatusCommand.Dispose();
+        ApplyApprovalFiltersCommand.Dispose(); ClearApprovalFiltersCommand.Dispose(); PreviousApprovalPageCommand.Dispose();
+        NextApprovalPageCommand.Dispose(); FirstApprovalPageCommand.Dispose(); LastApprovalPageCommand.Dispose();
+        RefreshHistoryCommand.Dispose(); ApplyHistoryFiltersCommand.Dispose(); ClearHistoryFiltersCommand.Dispose(); PreviousHistoryPageCommand.Dispose(); NextHistoryPageCommand.Dispose(); FirstHistoryPageCommand.Dispose(); LastHistoryPageCommand.Dispose();
     }
 
     private void GeneratePreview()
@@ -251,8 +393,207 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
 
     private async Task LoadApprovalsAsync(CancellationToken cancellationToken)
     {
-        var page = await _scheduledMessages.QueryApprovalsAsync(new ScheduledApprovalQuery(null, _botProfileId, _serverId, null, MessageOperationState.PendingApproval, null, null, null, ScheduledApprovalSort.DueAscending, 1, 100), cancellationToken).ConfigureAwait(false);
-        _dispatcher.Post(() => { Approvals.Clear(); foreach (var item in page.Items) Approvals.Add(item); SelectedApproval = Approvals.FirstOrDefault(); });
+        var version = Interlocked.Increment(ref _approvalQueryVersion);
+        if (_botProfileId is null || _serverId is null)
+        {
+            Approvals.Clear(); ApprovalTotalCount = 0; ApprovalQueryMessage = "Select a bot and server to view pending approvals."; return;
+        }
+        if (ApprovalFromDate is { } from && ApprovalToDate is { } to && from.Date > to.Date)
+        {
+            ApprovalQueryMessage = "The from date must be on or before the to date.";
+            return;
+        }
+
+        IsApprovalQueryLoading = true;
+        ApprovalQueryMessage = null;
+        try
+        {
+            var queueTask = _scheduledMessages.QueryApprovalsAsync(BuildApprovalQuery(), cancellationToken);
+            await queueTask.ConfigureAwait(false);
+            if (_disposed || version != Volatile.Read(ref _approvalQueryVersion)) return;
+            var page = await queueTask.ConfigureAwait(false);
+            var nearestPage = Math.Max(1, (int)Math.Ceiling(page.TotalCount / (double)ApprovalPageSize));
+            if (page.Items.Count == 0 && page.TotalCount > 0 && page.PageNumber > nearestPage)
+            {
+                ApprovalPageNumber = nearestPage;
+                page = await _scheduledMessages.QueryApprovalsAsync(BuildApprovalQuery(), cancellationToken).ConfigureAwait(false);
+                ApprovalQueryMessage = "The current page became empty after a decision, so the nearest available page is shown.";
+            }
+            _dispatcher.Post(() =>
+            {
+                if (_disposed || version != Volatile.Read(ref _approvalQueryVersion)) return;
+                var selectedId = SelectedApproval?.OccurrenceId;
+                Approvals.Clear(); foreach (var item in page.Items) Approvals.Add(item);
+                ApprovalTotalCount = page.TotalCount;
+                ApprovalPageNumber = page.PageNumber;
+                SelectedApproval = Approvals.FirstOrDefault(item => item.OccurrenceId == selectedId) ?? Approvals.FirstOrDefault();
+                ApprovalQueryMessage = page.TotalCount == 0 ? (SelectedApprovalState?.Value == MessageOperationState.PendingApproval ? "No pending approvals match the current filters. Clear filters or refresh the queue." : "No results match the current filters. Adjust or clear the filters.") : null;
+            });
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (Exception) { if (!_disposed && version == Volatile.Read(ref _approvalQueryVersion)) ApprovalQueryMessage = "The approval query could not be completed. Refresh and try again."; }
+        finally { if (!_disposed && version == Volatile.Read(ref _approvalQueryVersion)) IsApprovalQueryLoading = false; }
+    }
+
+    private ScheduledApprovalQuery BuildApprovalQuery() => new(
+        ApprovalSearch, _botProfileId, _serverId, SelectedApprovalSchedule is { IsAny: false } schedule ? schedule.Value : null, SelectedApprovalState is not { IsAny: false } selectedState ? null : selectedState.Value,
+        ApprovalFromDate is { } from ? new DateTimeOffset(from.Date, TimeZoneInfo.Local.GetUtcOffset(from.Date)) : null,
+        ApprovalToDate is { } to ? new DateTimeOffset(to.Date.AddDays(1).AddTicks(-1), TimeZoneInfo.Local.GetUtcOffset(to.Date)) : null,
+        SelectedApprovalCompatibility is { IsAny: false } compatibility ? compatibility.Value : null, SelectedApprovalSort?.Value ?? ScheduledApprovalSort.DueAscending, ApprovalPageNumber, ApprovalPageSize)
+    {
+        HasBroadMention = SelectedApprovalBroadMention is { IsAny: false } broadMention ? broadMention.Value : null,
+        RequiresManualReview = SelectedApprovalManualReview is { IsAny: false } manualReview ? manualReview.Value : null,
+        HistoryOnly = false
+    };
+
+    private async Task ApplyApprovalFiltersAsync(CancellationToken cancellationToken)
+    {
+        ApprovalPageNumber = 1;
+        await LoadApprovalsAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task ClearApprovalFiltersAsync(CancellationToken cancellationToken)
+    {
+        ApprovalSearch = string.Empty; ApprovalFromDate = null; ApprovalToDate = null;
+        SelectedApprovalState = ApprovalStates.First(choice => choice.Value == MessageOperationState.PendingApproval);
+        SelectedApprovalSchedule = ApprovalSchedules.FirstOrDefault();
+        SelectedApprovalCompatibility = null; SelectedApprovalBroadMention = null; SelectedApprovalManualReview = null;
+        SelectedApprovalSort = ApprovalSorts.First(choice => choice.Value == ScheduledApprovalSort.DueAscending);
+        ApprovalPageSize = 25; ApprovalPageNumber = 1;
+        await LoadApprovalsAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task NavigateApprovalPageAsync(int page, CancellationToken cancellationToken)
+    {
+        if (page < 1 || page > ApprovalTotalPages || IsApprovalQueryLoading) return;
+        ApprovalPageNumber = page;
+        await LoadApprovalsAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task LoadApprovalSchedulesAsync(CancellationToken cancellationToken)
+    {
+        var version = Interlocked.Increment(ref _approvalScheduleVersion);
+        if (_botProfileId is null || _serverId is null)
+        {
+            ApprovalSchedules.Clear(); SelectedApprovalSchedule = null; SelectedHistorySchedule = null;
+            return;
+        }
+        try
+        {
+            var schedules = await _scheduledMessages.ListApprovalSchedulesAsync(_botProfileId, _serverId, cancellationToken).ConfigureAwait(false);
+            if (_disposed || version != Volatile.Read(ref _approvalScheduleVersion)) return;
+            _dispatcher.Post(() =>
+            {
+                if (_disposed || version != Volatile.Read(ref _approvalScheduleVersion)) return;
+                var queueSelection = SelectedApprovalSchedule?.Value;
+                var historySelection = SelectedHistorySchedule?.Value;
+                ApprovalSchedules.Clear(); ApprovalSchedules.Add(new("All schedules", Guid.Empty, true));
+                foreach (var schedule in schedules) ApprovalSchedules.Add(new(schedule.DisplayName, schedule.ScheduleId));
+                SelectedApprovalSchedule = ApprovalSchedules.FirstOrDefault(item => item.Value == queueSelection) ?? ApprovalSchedules[0];
+                SelectedHistorySchedule = ApprovalSchedules.FirstOrDefault(item => item.Value == historySelection) ?? ApprovalSchedules[0];
+            });
+        }
+        catch { if (!_disposed && version == Volatile.Read(ref _approvalScheduleVersion)) ApprovalQueryMessage = "Schedules could not be loaded for the current scope."; }
+    }
+
+    private async Task LoadHistoryAsync(CancellationToken cancellationToken)
+    {
+        var version = Interlocked.Increment(ref _historyQueryVersion);
+        if (_botProfileId is null || _serverId is null)
+        {
+            ApprovalHistory.Clear(); HistoryQueryMessage = "Select a bot and server to view terminal approval history."; return;
+        }
+        if ((HistoryFromDueDate is { } fromDue && HistoryToDueDate is { } toDue && fromDue.Date > toDue.Date) || (HistoryFromDecisionDate is { } fromDecision && HistoryToDecisionDate is { } toDecision && fromDecision.Date > toDecision.Date))
+        {
+            HistoryQueryMessage = "Each history date range must start on or before its end date."; return;
+        }
+        IsHistoryQueryLoading = true; HistoryQueryMessage = null;
+        try
+        {
+            var page = await _scheduledMessages.QueryApprovalsAsync(BuildHistoryQuery(), cancellationToken).ConfigureAwait(false);
+            if (_disposed || version != Volatile.Read(ref _historyQueryVersion)) return;
+            _dispatcher.Post(() =>
+            {
+                if (_disposed || version != Volatile.Read(ref _historyQueryVersion)) return;
+                var selectedId = SelectedHistory?.OccurrenceId;
+                ApprovalHistory.Clear(); foreach (var item in page.Items) ApprovalHistory.Add(item);
+                HistoryTotalCount = page.TotalCount; HistoryPageNumber = page.PageNumber;
+                SelectedHistory = ApprovalHistory.FirstOrDefault(item => item.OccurrenceId == selectedId) ?? ApprovalHistory.FirstOrDefault();
+                HistoryQueryMessage = page.TotalCount == 0 ? "No terminal history matches the current filters. Adjust filters or wait for a decision." : null;
+            });
+        }
+        catch { if (!_disposed && version == Volatile.Read(ref _historyQueryVersion)) HistoryQueryMessage = "Terminal history could not be loaded. Refresh and try again."; }
+        finally { if (!_disposed && version == Volatile.Read(ref _historyQueryVersion)) IsHistoryQueryLoading = false; }
+    }
+
+    private ScheduledApprovalQuery BuildHistoryQuery() => new(
+        HistorySearch, _botProfileId, _serverId, SelectedHistorySchedule is { IsAny: false } schedule ? schedule.Value : null, SelectedHistoryState is { IsAny: false } state ? state.Value : null,
+        HistoryFromDueDate is { } from ? LocalDayStart(from) : null, HistoryToDueDate is { } to ? LocalDayEnd(to) : null,
+        SelectedHistoryCompatibility is { IsAny: false } compatibility ? compatibility.Value : null, SelectedHistorySort?.Value ?? ScheduledApprovalSort.DecisionNewest, HistoryPageNumber, HistoryPageSize)
+    {
+        HasBroadMention = SelectedHistoryBroadMention is { IsAny: false } broad ? broad.Value : null,
+        RequiresManualReview = SelectedHistoryManualReview is { IsAny: false } manual ? manual.Value : null,
+        HistoryOnly = true,
+        FromDecision = HistoryFromDecisionDate is { } fromDecision ? LocalDayStart(fromDecision) : null,
+        ToDecision = HistoryToDecisionDate is { } toDecision ? LocalDayEnd(toDecision) : null
+    };
+
+    private static DateTimeOffset LocalDayStart(DateTime date) => new(date.Date, TimeZoneInfo.Local.GetUtcOffset(date));
+    private static DateTimeOffset LocalDayEnd(DateTime date) => new(date.Date.AddDays(1).AddTicks(-1), TimeZoneInfo.Local.GetUtcOffset(date));
+
+    private async Task ApplyHistoryFiltersAsync(CancellationToken cancellationToken) { HistoryPageNumber = 1; await LoadHistoryAsync(cancellationToken).ConfigureAwait(false); }
+    private async Task ClearHistoryFiltersAsync(CancellationToken cancellationToken)
+    {
+        HistorySearch = string.Empty; HistoryFromDueDate = null; HistoryToDueDate = null; HistoryFromDecisionDate = null; HistoryToDecisionDate = null;
+        SelectedHistorySchedule = ApprovalSchedules.FirstOrDefault(); SelectedHistoryState = ApprovalStates.First(choice => choice.IsAny); SelectedHistoryCompatibility = null; SelectedHistoryBroadMention = null; SelectedHistoryManualReview = null; SelectedHistorySort = HistorySorts.First(choice => choice.Value == ScheduledApprovalSort.DecisionNewest); HistoryPageSize = 25; HistoryPageNumber = 1;
+        await LoadHistoryAsync(cancellationToken).ConfigureAwait(false);
+    }
+    private async Task NavigateHistoryPageAsync(int page, CancellationToken cancellationToken) { if (page < 1 || page > HistoryTotalPages || IsHistoryQueryLoading) return; HistoryPageNumber = page; await LoadHistoryAsync(cancellationToken).ConfigureAwait(false); }
+    private void ResetHistoryPage() { if (HistoryPageNumber != 1) HistoryPageNumber = 1; OnPropertyChanged(nameof(HistoryFilterSummary)); }
+    private void NotifyHistoryQueryProperties()
+    {
+        OnPropertyChanged(nameof(HistoryTotalPages)); OnPropertyChanged(nameof(CanGoToPreviousHistoryPage)); OnPropertyChanged(nameof(CanGoToNextHistoryPage)); OnPropertyChanged(nameof(HistoryFilterSummary));
+        RefreshHistoryCommand.NotifyCanExecuteChanged(); ApplyHistoryFiltersCommand.NotifyCanExecuteChanged(); ClearHistoryFiltersCommand.NotifyCanExecuteChanged(); PreviousHistoryPageCommand.NotifyCanExecuteChanged(); NextHistoryPageCommand.NotifyCanExecuteChanged(); FirstHistoryPageCommand.NotifyCanExecuteChanged(); LastHistoryPageCommand.NotifyCanExecuteChanged();
+    }
+
+    private async Task LoadHistoryDetailsAsync()
+    {
+        var selection = SelectedHistory;
+        var version = Interlocked.Increment(ref _historyDetailVersion);
+        HistoryDetails = null; HistoryContentIsOpen = false;
+        IsHistoryDetailsLoading = selection is not null;
+        if (selection is null) return;
+        try
+        {
+            var detail = await _scheduledMessages.GetApprovalAsync(selection.OccurrenceId, CancellationToken.None).ConfigureAwait(false);
+            if (_disposed || version != Volatile.Read(ref _historyDetailVersion)) return;
+            _dispatcher.Post(() =>
+            {
+                if (_disposed || version != Volatile.Read(ref _historyDetailVersion)) return;
+                HistoryDetails = detail; IsHistoryDetailsLoading = false;
+                OnPropertyChanged(nameof(HistoryManualReviewExplanation));
+                OpenHistoricalContentCommand.NotifyCanExecuteChanged();
+            });
+        }
+        catch { if (!_disposed && version == Volatile.Read(ref _historyDetailVersion)) IsHistoryDetailsLoading = false; }
+    }
+
+    private string BuildApprovalFilterSummary()
+    {
+        var filters = new List<string>();
+        if (!string.IsNullOrWhiteSpace(ApprovalSearch)) filters.Add("search");
+        if (SelectedApprovalState is { IsAny: false } selectedState) filters.Add(selectedState.Value == MessageOperationState.PendingApproval ? "pending" : selectedState.Label);
+        if (ApprovalFromDate is not null || ApprovalToDate is not null) filters.Add("due date");
+        if (SelectedApprovalCompatibility is { IsAny: false }) filters.Add(SelectedApprovalCompatibility.Label);
+        if (SelectedApprovalBroadMention is { IsAny: false }) filters.Add("broad mentions");
+        if (SelectedApprovalManualReview is { IsAny: false }) filters.Add("manual review");
+        return filters.Count == 0 ? "No active filters." : $"Active filters: {string.Join(", ", filters)}.";
+    }
+
+    private void NotifyApprovalQueryProperties()
+    {
+        OnPropertyChanged(nameof(ApprovalTotalPages)); OnPropertyChanged(nameof(CanGoToPreviousApprovalPage)); OnPropertyChanged(nameof(CanGoToNextApprovalPage)); OnPropertyChanged(nameof(ApprovalFilterSummary));
+        ApplyApprovalFiltersCommand.NotifyCanExecuteChanged(); ClearApprovalFiltersCommand.NotifyCanExecuteChanged(); PreviousApprovalPageCommand.NotifyCanExecuteChanged(); NextApprovalPageCommand.NotifyCanExecuteChanged(); FirstApprovalPageCommand.NotifyCanExecuteChanged(); LastApprovalPageCommand.NotifyCanExecuteChanged();
     }
 
     private async Task SkipApprovalAsync(CancellationToken cancellationToken)
@@ -266,6 +607,7 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
             {
                 StatusMessage = "The missed occurrence was skipped and was not sent.";
                 await LoadApprovalsAsync(cancellationToken).ConfigureAwait(false);
+                await LoadHistoryAsync(cancellationToken).ConfigureAwait(false);
             }
             else StatusMessage = "This occurrence was already processed.";
         }
@@ -283,6 +625,7 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
             {
                 StatusMessage = "The missed occurrence was archived and was not sent.";
                 await LoadApprovalsAsync(cancellationToken).ConfigureAwait(false);
+                await LoadHistoryAsync(cancellationToken).ConfigureAwait(false);
             }
             else StatusMessage = "This occurrence was already processed.";
         }
@@ -316,6 +659,7 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
                 _ => "This occurrence was already processed or could not be sent safely."
             };
             await LoadApprovalsAsync(cancellationToken).ConfigureAwait(false);
+            await LoadHistoryAsync(cancellationToken).ConfigureAwait(false);
         }
         finally { IsApprovalBusy = false; }
     }

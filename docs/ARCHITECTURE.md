@@ -569,6 +569,29 @@ user-token/self-bot behavior remain outside the architecture.
 
 ## WPF startup and UI-harness isolation
 
+### Manual approval queue and history
+
+Scheduled-approval list rows are projected from normalized safe metadata on the occurrence:
+reservation time, compatibility, broad-mention flag, destination names/ID, template reference, and
+terminal result. The immutable snapshot JSON is selected only by explicit detail inspection. SQLite
+performs search, filters, count, stable sort, and `LIMIT`/`OFFSET` paging; searches intentionally
+exclude the immutable message body and embeds. Every ordering ends with the occurrence ID to prevent
+movement between pages.
+
+History is a filtered view of the same occurrence lifecycle, rather than a second content-bearing
+store. Delivered, failed, uncertain/manual-review-required, skipped, and archived states retain safe
+decision metadata and correlation information. Uncertain occurrences are terminal for this workflow:
+there is no automatic resend or retry action. WPF exposes history content only behind an explicit
+"immutable historical outbound content" action and never renders it in a list row.
+
+The selected bot/server in the application toolbar forms the only Manual Approvals scope. Queue and
+terminal history do not run an unbounded cross-bot query when that context is absent. Safe schedule
+options are loaded independently for that scope, include All schedules, and represent an orphaned
+history source as Deleted or unavailable schedule. Queue and history keep separate query, filter,
+sort, page, loading/error, selection, and generation state so an action in one area cannot reset the
+other. The UI harness uses only in-memory safe metadata and does not access SoundPad or any unrelated
+application.
+
 `App.OnStartup` records safe milestones, creates the dependency-injection host, resolves the
 main window, assigns `Application.MainWindow`, and invokes `Show` before completing local
 startup work. Host/database/recovery/scheduler initialization then runs without blocking the

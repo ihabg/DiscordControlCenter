@@ -9,7 +9,7 @@ public sealed class SqliteDatabaseInitializer(
     SqliteConnectionFactory connectionFactory,
     ILogger<SqliteDatabaseInitializer> logger) : IDatabaseInitializer
 {
-    private const int CurrentSchemaVersion = 6;
+    private const int CurrentSchemaVersion = 7;
 
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
@@ -268,6 +268,7 @@ public sealed class SqliteDatabaseInitializer(
                     Id TEXT NOT NULL PRIMARY KEY,
                     BotProfileId TEXT NOT NULL,
                     ServerId TEXT NOT NULL,
+                    ScheduleName TEXT NOT NULL DEFAULT 'Untitled schedule',
                     IsEnabled INTEGER NOT NULL,
                     DefinitionJson TEXT NOT NULL,
                     CreatedAt TEXT NOT NULL,
@@ -364,6 +365,55 @@ public sealed class SqliteDatabaseInitializer(
 
         await EnsureColumnAsync(connection, transaction, "ScheduledMessageOccurrences", "ImmutableDeliverySnapshotJson", "TEXT NULL", cancellationToken).ConfigureAwait(false);
         await EnsureColumnAsync(connection, transaction, "ScheduledMessageOccurrences", "ManualDecision", "TEXT NULL", cancellationToken).ConfigureAwait(false);
+        await EnsureColumnAsync(connection, transaction, "ScheduledMessages", "ScheduleName", "TEXT NOT NULL DEFAULT 'Untitled schedule'", cancellationToken).ConfigureAwait(false);
+        await EnsureColumnAsync(connection, transaction, "ScheduledMessageOccurrences", "ReservedAt", "TEXT NULL", cancellationToken).ConfigureAwait(false);
+        await EnsureColumnAsync(connection, transaction, "ScheduledMessageOccurrences", "SnapshotSchemaVersion", "INTEGER NULL", cancellationToken).ConfigureAwait(false);
+        await EnsureColumnAsync(connection, transaction, "ScheduledMessageOccurrences", "SnapshotCompatibility", "TEXT NULL", cancellationToken).ConfigureAwait(false);
+        await EnsureColumnAsync(connection, transaction, "ScheduledMessageOccurrences", "HasBroadMention", "INTEGER NOT NULL DEFAULT 0", cancellationToken).ConfigureAwait(false);
+        await EnsureColumnAsync(connection, transaction, "ScheduledMessageOccurrences", "SnapshotServerName", "TEXT NULL", cancellationToken).ConfigureAwait(false);
+        await EnsureColumnAsync(connection, transaction, "ScheduledMessageOccurrences", "SnapshotChannelName", "TEXT NULL", cancellationToken).ConfigureAwait(false);
+        await EnsureColumnAsync(connection, transaction, "ScheduledMessageOccurrences", "SnapshotChannelId", "TEXT NULL", cancellationToken).ConfigureAwait(false);
+        await EnsureColumnAsync(connection, transaction, "ScheduledMessageOccurrences", "SnapshotTemplateId", "TEXT NULL", cancellationToken).ConfigureAwait(false);
+        await EnsureColumnAsync(connection, transaction, "ScheduledMessageOccurrences", "SnapshotTemplateVersion", "INTEGER NULL", cancellationToken).ConfigureAwait(false);
+        await using (var approvalIndexes = connection.CreateCommand())
+        {
+            approvalIndexes.Transaction = transaction;
+            approvalIndexes.CommandText =
+                "CREATE INDEX IF NOT EXISTS IX_ScheduledApproval_Query ON ScheduledMessageOccurrences (State, OccurrenceAt, OccurrenceId); " +
+                "CREATE INDEX IF NOT EXISTS IX_ScheduledApproval_History ON ScheduledMessageOccurrences (FinishedAt DESC, OccurrenceId); " +
+                "CREATE INDEX IF NOT EXISTS IX_ScheduledMessages_ApprovalName ON ScheduledMessages (BotProfileId, ServerId, ScheduleName COLLATE NOCASE);";
+            await approvalIndexes.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        await using (var approvalMetadataBackfill = connection.CreateCommand())
+        {
+            approvalMetadataBackfill.Transaction = transaction;
+            approvalMetadataBackfill.CommandText =
+                """
+                UPDATE ScheduledMessageOccurrences
+                SET ReservedAt = COALESCE(ReservedAt, CASE WHEN ImmutableDeliverySnapshotJson IS NOT NULL AND json_valid(ImmutableDeliverySnapshotJson) THEN json_extract(ImmutableDeliverySnapshotJson, '$.reservedAt') END),
+                    SnapshotSchemaVersion = COALESCE(SnapshotSchemaVersion, CASE WHEN ImmutableDeliverySnapshotJson IS NOT NULL AND json_valid(ImmutableDeliverySnapshotJson) THEN COALESCE(json_extract(ImmutableDeliverySnapshotJson, '$.schemaVersion'), 0) END),
+                    SnapshotCompatibility = COALESCE(SnapshotCompatibility, CASE
+                        WHEN ImmutableDeliverySnapshotJson IS NULL THEN 'MissingRequiredData'
+                        WHEN json_valid(ImmutableDeliverySnapshotJson) = 0 THEN 'Corrupt'
+                        WHEN json_type(ImmutableDeliverySnapshotJson, '$.schedule') IS NULL THEN 'SupportedLegacy'
+                        WHEN COALESCE(json_extract(ImmutableDeliverySnapshotJson, '$.schemaVersion'), 0) > 1 THEN 'UnsupportedNewerVersion'
+                        WHEN json_type(ImmutableDeliverySnapshotJson, '$.schedule.destination.channelId') IS NULL OR json_type(ImmutableDeliverySnapshotJson, '$.content.allowedMentions') IS NULL THEN 'MissingRequiredData'
+                        ELSE 'Supported' END),
+                    HasBroadMention = CASE WHEN ImmutableDeliverySnapshotJson IS NOT NULL AND json_valid(ImmutableDeliverySnapshotJson) AND (COALESCE(json_extract(ImmutableDeliverySnapshotJson, '$.content.allowedMentions.allowEveryoneAndHere'), 0) = 1 OR COALESCE(json_extract(ImmutableDeliverySnapshotJson, '$.content.allowedMentions.allowRoleMentions'), 0) = 1) THEN 1 ELSE HasBroadMention END,
+                    SnapshotServerName = COALESCE(SnapshotServerName, CASE WHEN ImmutableDeliverySnapshotJson IS NOT NULL AND json_valid(ImmutableDeliverySnapshotJson) THEN COALESCE(json_extract(ImmutableDeliverySnapshotJson, '$.schedule.destination.serverName'), json_extract(ImmutableDeliverySnapshotJson, '$.destination.serverName')) END),
+                    SnapshotChannelName = COALESCE(SnapshotChannelName, CASE WHEN ImmutableDeliverySnapshotJson IS NOT NULL AND json_valid(ImmutableDeliverySnapshotJson) THEN COALESCE(json_extract(ImmutableDeliverySnapshotJson, '$.schedule.destination.channelName'), json_extract(ImmutableDeliverySnapshotJson, '$.destination.channelName')) END),
+                    SnapshotChannelId = COALESCE(SnapshotChannelId, CASE WHEN ImmutableDeliverySnapshotJson IS NOT NULL AND json_valid(ImmutableDeliverySnapshotJson) THEN COALESCE(json_extract(ImmutableDeliverySnapshotJson, '$.schedule.destination.channelId'), json_extract(ImmutableDeliverySnapshotJson, '$.destination.channelId')) END),
+                    SnapshotTemplateId = COALESCE(SnapshotTemplateId, CASE WHEN ImmutableDeliverySnapshotJson IS NOT NULL AND json_valid(ImmutableDeliverySnapshotJson) THEN COALESCE(json_extract(ImmutableDeliverySnapshotJson, '$.templateId'), json_extract(ImmutableDeliverySnapshotJson, '$.schedule.templateId')) END),
+                    SnapshotTemplateVersion = COALESCE(SnapshotTemplateVersion, CASE WHEN ImmutableDeliverySnapshotJson IS NOT NULL AND json_valid(ImmutableDeliverySnapshotJson) THEN json_extract(ImmutableDeliverySnapshotJson, '$.templateVersion') END);
+                """;
+            await approvalMetadataBackfill.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        await using (var scheduleNameBackfill = connection.CreateCommand())
+        {
+            scheduleNameBackfill.Transaction = transaction;
+            scheduleNameBackfill.CommandText = "UPDATE ScheduledMessages SET ScheduleName = COALESCE(NULLIF(json_extract(DefinitionJson, '$.name'), ''), ScheduleName) WHERE json_valid(DefinitionJson);";
+            await scheduleNameBackfill.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
 
         await BackfillBackupCatalogAsync(
                 connection,
@@ -382,6 +432,10 @@ public sealed class SqliteDatabaseInitializer(
                     VALUES (3, $appliedAt);
                 INSERT OR IGNORE INTO SchemaVersions (Version, AppliedAt)
                     VALUES (4, $appliedAt);
+                INSERT OR IGNORE INTO SchemaVersions (Version, AppliedAt)
+                    VALUES (5, $appliedAt);
+                INSERT OR IGNORE INTO SchemaVersions (Version, AppliedAt)
+                    VALUES (6, $appliedAt);
                 INSERT OR IGNORE INTO SchemaVersions (Version, AppliedAt)
                     VALUES ($version, $appliedAt);
                 """;

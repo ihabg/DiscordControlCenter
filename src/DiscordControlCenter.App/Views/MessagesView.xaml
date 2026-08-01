@@ -20,6 +20,64 @@
                     </StackPanel>
                 </Border>
                 <Border Style="{StaticResource PanelSurfaceStyle}" Padding="18" Margin="0,12,0,0">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="300" MinWidth="220" /><ColumnDefinition Width="12" /><ColumnDefinition Width="*" MinWidth="280" /></Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="APPROVAL AND DECISION HISTORY" Style="{StaticResource DetailLabelStyle}" />
+                            <WrapPanel Margin="0,8,0,0">
+                                <Button Content="Refresh history" Command="{Binding RefreshHistoryCommand}" Style="{StaticResource SecondaryButtonStyle}" />
+                                <Button Content="Apply filters" Command="{Binding ApplyHistoryFiltersCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="8,0,0,0" />
+                                <Button Content="Clear filters" Command="{Binding ClearHistoryFiltersCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="8,0,0,0" />
+                            </WrapPanel>
+                            <WrapPanel Margin="0,8,0,0">
+                                <TextBox Width="190" Style="{StaticResource SearchBoxStyle}" Tag="Search safe history metadata" Text="{Binding HistorySearch, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.Name="Approval history search" Margin="0,0,8,8" />
+                                <ComboBox Width="170" ItemsSource="{Binding ApprovalSchedules}" SelectedItem="{Binding SelectedHistorySchedule}" Tag="Schedule" automation:AutomationProperties.Name="History schedule filter" Margin="0,0,8,8" />
+                                <ComboBox Width="150" ItemsSource="{Binding ApprovalStates}" SelectedItem="{Binding SelectedHistoryState}" Tag="Terminal state" automation:AutomationProperties.Name="History state filter" Margin="0,0,8,8" />
+                                <ComboBox Width="180" ItemsSource="{Binding HistorySorts}" SelectedItem="{Binding SelectedHistorySort}" automation:AutomationProperties.Name="History sort" Margin="0,0,8,8" />
+                                <ComboBox Width="70" ItemsSource="{Binding ApprovalPageSizes}" SelectedItem="{Binding HistoryPageSize}" automation:AutomationProperties.Name="History page size" Margin="0,0,8,8" />
+                                <DatePicker Width="122" SelectedDate="{Binding HistoryFromDueDate}" ToolTip="History due date from" automation:AutomationProperties.Name="History due date from" Margin="0,0,8,8" />
+                                <DatePicker Width="122" SelectedDate="{Binding HistoryToDueDate}" ToolTip="History due date to" automation:AutomationProperties.Name="History due date to" Margin="0,0,8,8" />
+                                <DatePicker Width="122" SelectedDate="{Binding HistoryFromDecisionDate}" ToolTip="Decision date from" automation:AutomationProperties.Name="History decision date from" Margin="0,0,8,8" />
+                                <DatePicker Width="122" SelectedDate="{Binding HistoryToDecisionDate}" ToolTip="Decision date to" automation:AutomationProperties.Name="History decision date to" Margin="0,0,8,8" />
+                                <ComboBox Width="135" ItemsSource="{Binding ApprovalCompatibilities}" SelectedItem="{Binding SelectedHistoryCompatibility}" Tag="Compatibility" automation:AutomationProperties.Name="History compatibility filter" Margin="0,0,8,8" />
+                                <ComboBox Width="120" ItemsSource="{Binding ApprovalBooleanChoices}" SelectedItem="{Binding SelectedHistoryBroadMention}" Tag="Broad mentions" automation:AutomationProperties.Name="History broad mention filter" Margin="0,0,8,8" />
+                                <ComboBox Width="120" ItemsSource="{Binding ApprovalBooleanChoices}" SelectedItem="{Binding SelectedHistoryManualReview}" Tag="Manual review" automation:AutomationProperties.Name="History manual review filter" Margin="0,0,8,8" />
+                            </WrapPanel>
+                            <TextBlock Text="{Binding HistoryFilterSummary}" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding HistoryQueryMessage}" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                            <WrapPanel Margin="0,6,0,0">
+                                <Button Content="First" Command="{Binding FirstHistoryPageCommand}" Style="{StaticResource SecondaryButtonStyle}" automation:AutomationProperties.Name="First history page" />
+                                <Button Content="Previous" Command="{Binding PreviousHistoryPageCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="8,0,0,0" automation:AutomationProperties.Name="Previous history page" />
+                                <TextBlock Text="{Binding HistoryPageNumber}" Style="{StaticResource SecondaryTextStyle}" VerticalAlignment="Center" Margin="8,0,0,0" /><TextBlock Text=" / " Style="{StaticResource SecondaryTextStyle}" VerticalAlignment="Center" /><TextBlock Text="{Binding HistoryTotalPages}" Style="{StaticResource SecondaryTextStyle}" VerticalAlignment="Center" />
+                                <Button Content="Next" Command="{Binding NextHistoryPageCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="8,0,0,0" automation:AutomationProperties.Name="Next history page" />
+                                <Button Content="Last" Command="{Binding LastHistoryPageCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="8,0,0,0" automation:AutomationProperties.Name="Last history page" />
+                            </WrapPanel>
+                            <TextBlock Text="History rows contain safe metadata only; outbound content is never shown here." Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,6,0,8" />
+                            <ListBox ItemsSource="{Binding ApprovalHistory}" SelectedItem="{Binding SelectedHistory}" Background="Transparent" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True" automation:AutomationProperties.Name="Manual approval decision history">
+                                <ListBox.ItemContainerStyle><StaticResource ResourceKey="DataRowContainerStyle" /></ListBox.ItemContainerStyle>
+                                <ListBox.ItemTemplate><DataTemplate><StackPanel Margin="8"><TextBlock Text="{Binding Decision}" FontWeight="SemiBold" /><TextBlock Text="{Binding ScheduleName}" Style="{StaticResource SecondaryTextStyle}" TextTrimming="CharacterEllipsis" /><TextBlock Text="{Binding DecisionAt}" Style="{StaticResource MutedTextStyle}" /></StackPanel></DataTemplate></ListBox.ItemTemplate>
+                            </ListBox>
+                        </StackPanel>
+                        <GridSplitter Grid.Column="1" Width="12" Background="Transparent" />
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="{Binding SelectedHistory.Decision}" Style="{StaticResource SectionHeadingStyle}" />
+                            <TextBlock Text="{Binding HistoryManualReviewExplanation}" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" Margin="0,6,0,0" />
+                            <TextBlock Text="{Binding SelectedHistory.SafeFailureCode}" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,6,0,0" />
+                            <TextBlock Text="{Binding SelectedHistory.CorrelationId}" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,6,0,0" />
+                            <TextBlock Text="{Binding SelectedHistory.Compatibility}" Style="{StaticResource MutedTextStyle}" Margin="0,6,0,0" />
+                            <TextBlock Text="The decision timeline is based only on persisted reservation and decision timestamps." Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,10,0,0" />
+                            <TextBlock Text="Occurrence reserved" Style="{StaticResource SecondaryTextStyle}" />
+                            <TextBlock Text="{Binding SelectedHistory.Decision}" Style="{StaticResource SecondaryTextStyle}" Margin="0,4,0,0" />
+                            <Button Content="Open immutable historical outbound content" Command="{Binding OpenHistoricalContentCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="0,12,0,0" automation:AutomationProperties.Name="Open immutable historical outbound content" />
+                            <StackPanel Visibility="{Binding HistoryContentIsOpen, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,8,0,0">
+                                <TextBlock Text="IMMUTABLE HISTORICAL OUTBOUND CONTENT" Style="{StaticResource DetailLabelStyle}" />
+                                <TextBlock Text="This is the original immutable occurrence snapshot, opened deliberately. It is not displayed in history rows." Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                                <TextBlock Text="{Binding HistoryDetails.ImmutableContent.Body}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+                <Border Style="{StaticResource PanelSurfaceStyle}" Padding="18" Margin="0,12,0,0">
                     <StackPanel>
                         <TextBlock Text="MESSAGE" Style="{StaticResource DetailLabelStyle}" />
                         <TextBox Text="{Binding MessageBody, UpdateSourceTrigger=PropertyChanged}" Tag="Write a message" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="130" MaxHeight="300" VerticalScrollBarVisibility="Auto" Margin="0,10,0,0" />
@@ -52,9 +110,38 @@
                 <Border Style="{StaticResource PanelSurfaceStyle}" Padding="18">
                     <Grid>
                         <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="MANUAL APPROVALS" Style="{StaticResource DetailLabelStyle}" VerticalAlignment="Center" />
-                            <Button Content="Refresh queue" Command="{Binding RefreshApprovalsCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="12,0,0,0" />
+                        <StackPanel>
+                            <WrapPanel>
+                                <TextBlock Text="MANUAL APPROVALS" Style="{StaticResource DetailLabelStyle}" VerticalAlignment="Center" />
+                                <Button Content="Refresh queue" Command="{Binding RefreshApprovalsCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="12,0,0,0" automation:AutomationProperties.Name="Refresh manual approval queue" />
+                                <Button Content="Apply filters" Command="{Binding ApplyApprovalFiltersCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="8,0,0,0" />
+                                <Button Content="Clear filters" Command="{Binding ClearApprovalFiltersCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="8,0,0,0" />
+                            </WrapPanel>
+                            <WrapPanel Margin="0,12,0,0">
+                                <TextBox Width="210" Tag="Search schedule, bot, server, channel, template, or ID" Style="{StaticResource SearchBoxStyle}" Text="{Binding ApprovalSearch, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.Name="Approval queue search" Margin="0,0,8,8" />
+                                <ComboBox Width="180" ItemsSource="{Binding ApprovalSchedules}" SelectedItem="{Binding SelectedApprovalSchedule}" Tag="Schedule" automation:AutomationProperties.Name="Approval schedule filter" Margin="0,0,8,8" />
+                                <ComboBox Width="150" ItemsSource="{Binding ApprovalStates}" SelectedItem="{Binding SelectedApprovalState}" Tag="State" automation:AutomationProperties.Name="Approval state filter" Margin="0,0,8,8" />
+                                <DatePicker Width="130" SelectedDate="{Binding ApprovalFromDate}" ToolTip="Due date from" automation:AutomationProperties.Name="Due date from" Margin="0,0,8,8" />
+                                <DatePicker Width="130" SelectedDate="{Binding ApprovalToDate}" ToolTip="Due date to" automation:AutomationProperties.Name="Due date to" Margin="0,0,8,8" />
+                                <ComboBox Width="165" ItemsSource="{Binding ApprovalCompatibilities}" SelectedItem="{Binding SelectedApprovalCompatibility}" Tag="Compatibility" automation:AutomationProperties.Name="Snapshot compatibility filter" Margin="0,0,8,8" />
+                                <ComboBox Width="130" ItemsSource="{Binding ApprovalBooleanChoices}" SelectedItem="{Binding SelectedApprovalBroadMention}" Tag="Broad mentions" automation:AutomationProperties.Name="Broad mention filter" Margin="0,0,8,8" />
+                                <ComboBox Width="130" ItemsSource="{Binding ApprovalBooleanChoices}" SelectedItem="{Binding SelectedApprovalManualReview}" Tag="Manual review" automation:AutomationProperties.Name="Manual review filter" Margin="0,0,8,8" />
+                                <ComboBox Width="200" ItemsSource="{Binding ApprovalSorts}" SelectedItem="{Binding SelectedApprovalSort}" automation:AutomationProperties.Name="Approval sort" Margin="0,0,8,8" />
+                                <ComboBox Width="76" ItemsSource="{Binding ApprovalPageSizes}" SelectedItem="{Binding ApprovalPageSize}" automation:AutomationProperties.Name="Approval page size" Margin="0,0,8,8" />
+                            </WrapPanel>
+                            <TextBlock Text="{Binding ApprovalFilterSummary}" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding ApprovalScopeSummary}" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                            <TextBlock Text="{Binding ApprovalQueryMessage}" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                            <WrapPanel Margin="0,8,0,0">
+                                <Button Content="First" Command="{Binding FirstApprovalPageCommand}" Style="{StaticResource SecondaryButtonStyle}" automation:AutomationProperties.Name="First approval page" />
+                                <Button Content="Previous" Command="{Binding PreviousApprovalPageCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="8,0,0,0" automation:AutomationProperties.Name="Previous approval page" />
+                                <TextBlock Text="{Binding ApprovalPageNumber}" Style="{StaticResource SecondaryTextStyle}" VerticalAlignment="Center" Margin="12,0,0,0" />
+                                <TextBlock Text=" / " Style="{StaticResource SecondaryTextStyle}" VerticalAlignment="Center" />
+                                <TextBlock Text="{Binding ApprovalTotalPages}" Style="{StaticResource SecondaryTextStyle}" VerticalAlignment="Center" />
+                                <Button Content="Next" Command="{Binding NextApprovalPageCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="12,0,0,0" automation:AutomationProperties.Name="Next approval page" />
+                                <Button Content="Last" Command="{Binding LastApprovalPageCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="8,0,0,0" automation:AutomationProperties.Name="Last approval page" />
+                                <TextBlock Text="{Binding ApprovalTotalCount, StringFormat={}{0} records}" Style="{StaticResource MutedTextStyle}" VerticalAlignment="Center" Margin="12,0,0,0" />
+                            </WrapPanel>
                         </StackPanel>
                         <Grid Grid.Row="1" Margin="0,12,0,0">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="260" MinWidth="180" /><ColumnDefinition Width="12" /><ColumnDefinition Width="*" MinWidth="300" /></Grid.ColumnDefinitions>

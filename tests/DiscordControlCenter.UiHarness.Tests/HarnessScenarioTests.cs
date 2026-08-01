@@ -1,4 +1,5 @@
 using DiscordControlCenter.Application.Messaging;
+using DiscordControlCenter.Core.Messaging;
 using DiscordControlCenter.UiHarness;
 
 namespace DiscordControlCenter.UiHarness.Tests;
@@ -11,11 +12,14 @@ public sealed class HarnessScenarioTests
         var first = HarnessScenario.CreateAll();
         var second = HarnessScenario.CreateAll();
 
-        Assert.Equal(13, first.Count);
+        Assert.Equal(18, first.Count);
         Assert.Equal(first.Select(item => item.Name), second.Select(item => item.Name));
         Assert.Contains(first, item => item.Kind == HarnessScenarioKind.BroadMention);
         Assert.Contains(first, item => item.Kind == HarnessScenarioKind.Disconnected);
         Assert.Contains(first, item => item.Kind == HarnessScenarioKind.Unsupported);
+        Assert.Contains(first, item => item.Kind == HarnessScenarioKind.Delivered);
+        Assert.Contains(first, item => item.Kind == HarnessScenarioKind.Uncertain);
+        Assert.Contains(first, item => item.Kind == HarnessScenarioKind.Archived);
     }
 
     [Fact]
@@ -50,5 +54,19 @@ public sealed class HarnessScenarioTests
 
         Assert.Contains("<IsPackable>false</IsPackable>", project, StringComparison.Ordinal);
         Assert.Contains("<PublishSingleFile>false</PublishSingleFile>", project, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(HarnessScenarioKind.Delivered, MessageOperationState.Delivered)]
+    [InlineData(HarnessScenarioKind.Failed, MessageOperationState.Failed)]
+    [InlineData(HarnessScenarioKind.Uncertain, MessageOperationState.Uncertain)]
+    [InlineData(HarnessScenarioKind.Skipped, MessageOperationState.Skipped)]
+    [InlineData(HarnessScenarioKind.Archived, MessageOperationState.Archived)]
+    public void TerminalHistoryScenariosExposeTheExpectedSafeState(HarnessScenarioKind kind, MessageOperationState state)
+    {
+        var approval = HarnessScenario.CreateAll().Single(item => item.Kind == kind).CreateApproval();
+
+        Assert.Equal(state, approval.Occurrence.State);
+        Assert.DoesNotContain("token", approval.Snapshot.Destination.ChannelName ?? string.Empty, StringComparison.OrdinalIgnoreCase);
     }
 }
