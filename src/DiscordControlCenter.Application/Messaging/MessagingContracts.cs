@@ -167,3 +167,18 @@ public interface IScheduledMessageQueryService
     Task<ScheduledMessageDetail?> GetDetailAsync(Guid botProfileId, ulong serverId, Guid scheduleId, CancellationToken cancellationToken);
     Task<ScheduledMessageOccurrencePage> GetRecentOccurrencesAsync(Guid botProfileId, ulong serverId, Guid scheduleId, int limit, CancellationToken cancellationToken);
 }
+
+public sealed record ScheduledDraftValidation(IReadOnlyList<string> Errors, IReadOnlyList<string> Warnings, string RecurrenceSummary, IReadOnlyList<DateTimeOffset> Upcoming)
+{
+    public bool IsValid => Errors.Count == 0;
+}
+
+public sealed record ScheduledDraftSaveResult(bool Saved, bool Conflict, ScheduledMessageDefinition? Definition, ScheduledDraftValidation Validation, string? Message);
+
+public interface IScheduledMessageDraftService
+{
+    ScheduledMessageDefinition CreateDraft(Guid botProfileId, MessageDestination destination);
+    Task<ScheduledMessageDefinition?> LoadAsync(Guid botProfileId, ulong serverId, Guid scheduleId, CancellationToken cancellationToken);
+    Task<ScheduledDraftValidation> ValidateAsync(ScheduledMessageDefinition definition, CancellationToken cancellationToken);
+    Task<ScheduledDraftSaveResult> SaveAsync(ScheduledMessageDefinition definition, int expectedRevision, CancellationToken cancellationToken);
+}

@@ -18,6 +18,12 @@ public sealed class ScheduledMessagesViewModel : ObservableObject, IDisposable
 {
     private const int RecentOccurrenceLimit = 10;
     private readonly IScheduledMessageQueryService service;
+    private readonly IScheduledMessageDraftService? drafts;
+    private ScheduledMessageDefinition? _draft;
+    private int _draftRevision;
+    private bool _draftSaving;
+    private string? _draftMessage;
+    private ScheduledChoice<ulong>? _draftDestination;
     private Guid? _botId;
     private ulong? _serverId;
     private string _botName = "No bot selected";
@@ -73,11 +79,15 @@ public sealed class ScheduledMessagesViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand NextPageCommand { get; }
     public AsyncRelayCommand LastPageCommand { get; }
     public RelayCommand NavigateMessagesSectionCommand { get; }
+    public AsyncRelayCommand NewDraftCommand { get; }
+    public AsyncRelayCommand SaveDraftCommand { get; }
+    public AsyncRelayCommand ValidateDraftCommand { get; }
     public event EventHandler<string>? MessagesSectionRequested;
 
-    public ScheduledMessagesViewModel(IScheduledMessageQueryService service)
+    public ScheduledMessagesViewModel(IScheduledMessageQueryService service, IScheduledMessageDraftService? drafts = null)
     {
         this.service = service;
+        this.drafts = drafts;
         _lifecycle = Lifecycles[0]; _recurrence = Recurrences[0]; _missedPolicy = MissedPolicies[0]; _warning = WarningStates[0]; _sort = Sorts[0];
         RefreshCommand = new AsyncRelayCommand(LoadAsync, CanQuery);
         ClearFiltersCommand = new AsyncRelayCommand(ClearFiltersAsync, () => !IsLoading);
@@ -86,6 +96,9 @@ public sealed class ScheduledMessagesViewModel : ObservableObject, IDisposable
         NextPageCommand = new AsyncRelayCommand(token => GoToPageAsync(PageNumber + 1, token), () => CanQuery() && PageNumber < TotalPages);
         LastPageCommand = new AsyncRelayCommand(token => GoToPageAsync(TotalPages, token), () => CanQuery() && PageNumber < TotalPages);
         NavigateMessagesSectionCommand = new RelayCommand(section => MessagesSectionRequested?.Invoke(this, section as string ?? "Compose"));
+        NewDraftCommand = new AsyncRelayCommand(NewDraftAsync, () => CanEditDraft);
+        SaveDraftCommand = new AsyncRelayCommand(SaveDraftAsync, () => CanEditDraft && Draft is not null && !IsDraftSaving);
+        ValidateDraftCommand = new AsyncRelayCommand(ValidateDraftAsync, () => CanEditDraft && Draft is not null && !IsDraftSaving);
     }
 
     public string Search { get => _search; set { if (SetProperty(ref _search, value)) ResetPage(); } }
@@ -120,6 +133,16 @@ public sealed class ScheduledMessagesViewModel : ObservableObject, IDisposable
     public bool IsOccurrencesLoading { get => _occurrencesLoading; private set => SetProperty(ref _occurrencesLoading, value); }
     public string? OccurrenceError { get => _occurrenceError; private set => SetProperty(ref _occurrenceError, value); }
     public string OccurrenceStateMessage => IsOccurrencesLoading ? "Loading the latest 10 safe occurrence records…" : RecentOccurrences.Count == 0 && SelectedSchedule is not null && OccurrenceError is null ? "No recent occurrences are available for this schedule." : string.Empty;
+
+    public ScheduledMessageDefinition? Draft { get => _draft; private set { if (SetProperty(ref _draft, value)) { OnPropertyChanged(nameof(IsEditingDraft)); SaveDraftCommand.NotifyCanExecuteChanged(); ValidateDraftCommand.NotifyCanExecuteChanged(); } } }
+    public bool IsEditingDraft => Draft is not null;
+    public bool IsDraftSaving { get => _draftSaving; private set { if (SetProperty(ref _draftSaving, value)) SaveDraftCommand.NotifyCanExecuteChanged(); } }
+    public string? DraftMessage { get => _draftMessage; private set => SetProperty(ref _draftMessage, value); }
+    public bool CanEditDraft => drafts is not null && _botId is not null && _serverId is not null;
+    public string DraftName { get => Draft?.Name ?? string.Empty; set { if (Draft is not null) Draft = Draft with { Name = value }; } }
+    public string DraftBody { get => Draft?.InlineContent?.Body ?? string.Empty; set { if (Draft is not null) Draft = Draft with { InlineContent = new MessageContent(value, null, AllowedMentionPolicy.None), TemplateId = null }; } }
+    public string DraftTimeZone { get => Draft?.TimeZoneId ?? string.Empty; set { if (Draft is not null) Draft = Draft with { TimeZoneId = value }; } }
+    public ScheduledChoice<ulong>? SelectedDraftDestination { get => _draftDestination; set { if (SetProperty(ref _draftDestination, value) && Draft is not null && value is { IsAny: false, Value: ulong channel }) Draft = Draft with { Destination = MessageDestination.Channel(_serverId ?? 0, _serverName, channel, value.Label) }; } }
 
     public void SetContext(Guid? botId, string? botName, ulong? serverId, string? serverName)
     {
@@ -215,6 +238,20 @@ public sealed class ScheduledMessagesViewModel : ObservableObject, IDisposable
         void Add<T>(ScheduledChoice<T>? value) { if (value is { IsAny: false }) values.Add(value.Label); }
     }
     private void NotifyCommands() { RefreshCommand?.NotifyCanExecuteChanged(); ClearFiltersCommand?.NotifyCanExecuteChanged(); FirstPageCommand?.NotifyCanExecuteChanged(); PreviousPageCommand?.NotifyCanExecuteChanged(); NextPageCommand?.NotifyCanExecuteChanged(); LastPageCommand?.NotifyCanExecuteChanged(); }
+
+    private Task NewDraftAsync(CancellationToken token)
+    {
+        if (drafts is null || _botId is not Guid bot || _serverId is not ulong server) return Task.CompletedTask;
+        Draft = drafts.CreateDraft(bot, MessageDestination.Channel(server, _serverName, 0, "Select a destination")); _draftRevision = 0; DraftMessage = "New draft. Select a destination and message source, then validate."; return Task.CompletedTask;
+    }
+    private async Task ValidateDraftAsync(CancellationToken token)
+    {
+        if (drafts is null || Draft is null) return; var result = await drafts.ValidateAsync(Draft, token).ConfigureAwait(false); DraftMessage = result.IsValid ? result.RecurrenceSummary + " " + string.Join(" ", result.Warnings) : string.Join(" ", result.Errors);
+    }
+    private async Task SaveDraftAsync(CancellationToken token)
+    {
+        if (drafts is null || Draft is null) return; IsDraftSaving = true; try { var result = await drafts.SaveAsync(Draft, _draftRevision, token).ConfigureAwait(false); DraftMessage = result.Message; if (result.Saved && result.Definition is not null) { Draft = result.Definition; _draftRevision = result.Definition.Revision; await LoadAsync(token).ConfigureAwait(false); SelectedSchedule = Schedules.FirstOrDefault(item => item.Id == result.Definition.Id); } } finally { IsDraftSaving = false; }
+    }
 
     public void Dispose()
     {
