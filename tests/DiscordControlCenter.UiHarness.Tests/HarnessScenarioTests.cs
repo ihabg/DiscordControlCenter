@@ -12,7 +12,7 @@ public sealed class HarnessScenarioTests
         var first = HarnessScenario.CreateAll();
         var second = HarnessScenario.CreateAll();
 
-        Assert.Equal(44, first.Count);
+        Assert.Equal(64, first.Count);
         Assert.Equal(first.Select(item => item.Name), second.Select(item => item.Name));
         Assert.Contains(first, item => item.Kind == HarnessScenarioKind.BroadMention);
         Assert.Contains(first, item => item.Kind == HarnessScenarioKind.Disconnected);
@@ -25,6 +25,12 @@ public sealed class HarnessScenarioTests
         Assert.Contains(first, item => item.Kind == HarnessScenarioKind.ScheduleInvalidTimeZone);
         Assert.Contains(first, item => item.Kind == HarnessScenarioKind.OccurrenceUncertain);
         Assert.Contains(first, item => item.Kind == HarnessScenarioKind.ScheduleOccurrenceError);
+        Assert.Contains(first, item => item.Kind == HarnessScenarioKind.DraftNewBlank);
+        Assert.Contains(first, item => item.Kind == HarnessScenarioKind.DraftScopedTemplates);
+        Assert.Contains(first, item => item.Kind == HarnessScenarioKind.DraftMissingTemplate);
+        Assert.Contains(first, item => item.Kind == HarnessScenarioKind.DraftInvalidZone);
+        Assert.Contains(first, item => item.Kind == HarnessScenarioKind.DraftConflict);
+        Assert.Contains(first, item => item.Kind == HarnessScenarioKind.DraftNarrow);
     }
 
     [Fact]
@@ -59,6 +65,17 @@ public sealed class HarnessScenarioTests
 
         Assert.Contains("<IsPackable>false</IsPackable>", project, StringComparison.Ordinal);
         Assert.Contains("<PublishSingleFile>false</PublishSingleFile>", project, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DraftHarnessUsesScopedFriendlyOptionsAndNeverResolvesProductionServices()
+    {
+        var service = new HarnessScheduledMessageDraftService { Scenario = new HarnessScenario("Scoped", HarnessScenarioKind.DraftScopedTemplates) };
+        var options = await service.GetTemplateOptionsAsync(HarnessScheduledMessageQueryService.BotId, HarnessScheduledMessageQueryService.ServerId, CancellationToken.None);
+
+        Assert.Equal("Harness scoped template", Assert.Single(options).Name);
+        Assert.DoesNotContain("token", string.Join(' ', options.Select(item => item.Name)), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(typeof(HarnessScheduledMessageDraftService).GetConstructors().SelectMany(item => item.GetParameters()), item => item.ParameterType.Name.Contains("Writer", StringComparison.Ordinal));
     }
 
     [Theory]

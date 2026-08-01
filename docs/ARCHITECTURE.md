@@ -25,6 +25,33 @@ The project boundary remains:
 
 No ViewModel retains a Discord.Net entity. No Core/Application/App type exposes one.
 
+## Scheduled Messages Draft Editor
+
+`IScheduledMessageDraftService` is the Draft-only boundary. It creates and loads scoped
+Draft definitions, validates recurrence and saved references, and persists through an
+atomic expected-revision repository operation. It forcibly saves the Draft lifecycle
+with execution disabled; it does not depend on the scheduler, occurrence reservation,
+Manual Approvals, a Discord client, or a message writer.
+
+Templates carry bot/server scope. The Draft service returns only friendly option rows,
+without message or embed content. `ScheduledMessagesViewModel` owns cancellation and a
+template generation counter, so an older scope request cannot replace newer options.
+Missing saved references remain representable as **Deleted or unavailable template**;
+validation rejects them rather than changing data silently.
+
+The ViewModel stores a clean persisted-definition baseline. Dirty state compares that
+baseline with the current persisted fields, independent of validation, previews,
+loading, status, or conflict presentation. A centralized pending unsaved-action model
+passes selection, new-draft, leave, close, and reload continuations through the custom
+dark confirmation dialog; Keep editing and Escape preserve values. A successful save or
+Reload latest replaces the baseline and clears conflict state.
+
+The isolated UI harness has no service provider, SQLite connection, token store, Discord
+client, writer, or scheduler. Its Draft scenarios use deterministic in-memory doubles
+only. UI, harness output, and documentation never expose tokens, authorization values,
+raw Discord payloads, or template message bodies. SoundPad is outside this repository
+and is neither referenced nor accessed.
+
 ## Production-window diagnostics
 
 The App's WPF lifecycle logs a native-window snapshot at `SourceInitialized`,

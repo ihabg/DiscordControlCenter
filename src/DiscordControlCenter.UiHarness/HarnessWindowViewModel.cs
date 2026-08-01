@@ -23,6 +23,7 @@ public sealed class HarnessWindowViewModel : ObservableObject
     private bool _connected = true;
     private bool _sendMessages = true;
     private readonly HarnessScheduledMessageQueryService _scheduleService;
+    private readonly HarnessScheduledMessageDraftService _draftService;
 
     public HarnessWindowViewModel(Window owner)
     {
@@ -31,7 +32,8 @@ public sealed class HarnessWindowViewModel : ObservableObject
         Scenarios = new ObservableCollection<HarnessScenario>(_seed);
         Approval = new HarnessApprovalViewModel(owner);
         _scheduleService = new HarnessScheduledMessageQueryService();
-        ScheduledMessages = new ScheduledMessagesViewModel(_scheduleService);
+        _draftService = new HarnessScheduledMessageDraftService();
+        ScheduledMessages = new ScheduledMessagesViewModel(_scheduleService, _draftService, new HarnessDiscardConfirmationService());
         NormalLayoutCommand = new RelayCommand(_ => SetLayout(1600, 900));
         NarrowLayoutCommand = new RelayCommand(_ => SetLayout(1100, 700));
         ToggleConnectionCommand = new RelayCommand(_ => { _connected = !_connected; Apply(); });
@@ -67,6 +69,7 @@ public sealed class HarnessWindowViewModel : ObservableObject
         {
             Approval.Load(_selectedScenario, _connected, _sendMessages);
             _scheduleService.Scenario = _selectedScenario;
+            _draftService.Scenario = _selectedScenario;
             if (_selectedScenario.Kind == HarnessScenarioKind.NoBotServerScope)
             {
                 ScheduledMessages.SetContext(null, null, null, null);
@@ -75,9 +78,15 @@ public sealed class HarnessWindowViewModel : ObservableObject
             {
                 ScheduledMessages.SetContext(HarnessScheduledMessageQueryService.BotId, "Harness bot", HarnessScheduledMessageQueryService.ServerId, "Harness server");
                 _ = ScheduledMessages.LoadAsync(CancellationToken.None);
+                if (_selectedScenario.Kind.ToString().StartsWith("Draft", StringComparison.Ordinal)) ScheduledMessages.NewDraftCommand.Execute(null);
             }
         }
     }
+}
+
+public sealed class HarnessDiscardConfirmationService : DiscordControlCenter.App.Services.IDraftDiscardConfirmationService
+{
+    public bool ConfirmDiscard(string actionDescription) => false;
 }
 
 public sealed class HarnessApprovalViewModel : ObservableObject
@@ -335,6 +344,26 @@ public sealed record HarnessScenario(string Name, HarnessScenarioKind Kind)
         ,new("42. Schedule query error", HarnessScenarioKind.ScheduleQueryError)
         ,new("43. Schedule detail error", HarnessScenarioKind.ScheduleDetailError)
         ,new("44. Occurrence query error", HarnessScenarioKind.ScheduleOccurrenceError)
+        ,new("45. New blank Draft", HarnessScenarioKind.DraftNewBlank)
+        ,new("46. Valid Draft and preview", HarnessScenarioKind.DraftValid)
+        ,new("47. Invalid Draft validation", HarnessScenarioKind.DraftInvalid)
+        ,new("48. Dirty Draft", HarnessScenarioKind.DraftDirty)
+        ,new("49. Draft save success", HarnessScenarioKind.DraftSaveSuccess)
+        ,new("50. Draft save failure", HarnessScenarioKind.DraftSaveFailure)
+        ,new("51. Scoped template options", HarnessScenarioKind.DraftScopedTemplates)
+        ,new("52. Different template scope", HarnessScenarioKind.DraftDifferentScope)
+        ,new("53. No Draft templates", HarnessScenarioKind.DraftNoTemplates)
+        ,new("54. Deleted template", HarnessScenarioKind.DraftMissingTemplate)
+        ,new("55. Long template name", HarnessScenarioKind.DraftLongTemplate)
+        ,new("56. Template loading failure", HarnessScenarioKind.DraftTemplateFailure)
+        ,new("57. Invalid saved time zone", HarnessScenarioKind.DraftInvalidZone)
+        ,new("58. Weekly weekday required", HarnessScenarioKind.DraftWeeklyMissingDay)
+        ,new("59. Invalid Draft date range", HarnessScenarioKind.DraftInvalidDateRange)
+        ,new("60. No future occurrence", HarnessScenarioKind.DraftNoFutureOccurrence)
+        ,new("61. Draft conflict retained", HarnessScenarioKind.DraftConflict)
+        ,new("62. Reload latest Draft", HarnessScenarioKind.DraftReloaded)
+        ,new("63. Unsaved changes confirmation", HarnessScenarioKind.DraftUnsavedChanges)
+        ,new("64. Narrow Draft layout", HarnessScenarioKind.DraftNarrow)
     ];
 
     public ScheduledMessageApproval CreateApproval()
@@ -390,7 +419,7 @@ public sealed record HarnessScenario(string Name, HarnessScenarioKind Kind)
         AllowedMentionPolicy.None);
 }
 
-public enum HarnessScenarioKind { Plain, FullEmbed, NearLimit, OverLimit, BroadMention, Disconnected, MissingSendMessages, MissingEmbedLinks, Legacy, Unsupported, MissingData, TargetIds, LongText, Delivered, Failed, Uncertain, Skipped, Archived, NoBotServerScope, NoSchedules, NoFilteredSchedules, ScheduleDraft, ScheduleEnabled, ScheduleDisabled, ScheduleFaulted, ScheduleExpired, ScheduleArchived, ScheduleOnce, ScheduleWeekly, ScheduleInvalidRecurrence, ScheduleInvalidTimeZone, ScheduleMissingTemplate, ScheduleDeletedDestination, ScheduleLongText, OccurrenceDelivered, OccurrenceFailed, OccurrencePendingApproval, OccurrenceSkipped, OccurrenceArchived, OccurrenceUncertain, NoRecentOccurrences, ScheduleQueryError, ScheduleDetailError, ScheduleOccurrenceError }
+public enum HarnessScenarioKind { Plain, FullEmbed, NearLimit, OverLimit, BroadMention, Disconnected, MissingSendMessages, MissingEmbedLinks, Legacy, Unsupported, MissingData, TargetIds, LongText, Delivered, Failed, Uncertain, Skipped, Archived, NoBotServerScope, NoSchedules, NoFilteredSchedules, ScheduleDraft, ScheduleEnabled, ScheduleDisabled, ScheduleFaulted, ScheduleExpired, ScheduleArchived, ScheduleOnce, ScheduleWeekly, ScheduleInvalidRecurrence, ScheduleInvalidTimeZone, ScheduleMissingTemplate, ScheduleDeletedDestination, ScheduleLongText, OccurrenceDelivered, OccurrenceFailed, OccurrencePendingApproval, OccurrenceSkipped, OccurrenceArchived, OccurrenceUncertain, NoRecentOccurrences, ScheduleQueryError, ScheduleDetailError, ScheduleOccurrenceError, DraftNewBlank, DraftValid, DraftInvalid, DraftDirty, DraftSaveSuccess, DraftSaveFailure, DraftScopedTemplates, DraftDifferentScope, DraftNoTemplates, DraftMissingTemplate, DraftLongTemplate, DraftTemplateFailure, DraftInvalidZone, DraftWeeklyMissingDay, DraftInvalidDateRange, DraftNoFutureOccurrence, DraftConflict, DraftReloaded, DraftUnsavedChanges, DraftNarrow }
 
 /// <summary>In-memory only source for the shared Scheduled Messages presentation.</summary>
 public sealed class HarnessScheduledMessageQueryService : IScheduledMessageQueryService
@@ -434,4 +463,61 @@ public sealed class HarnessScheduledMessageQueryService : IScheduledMessageQuery
         var template = Scenario?.Kind == HarnessScenarioKind.ScheduleMissingTemplate ? "Deleted or unavailable template" : "Harness template";
         return new(ScheduleId, name, lifecycle, "Harness bot", "Harness server", channel, template, recurrence, zone, DateTimeOffset.UtcNow.AddDays(1), null, null, MissedOccurrencePolicy.RequireManualApproval, lifecycle is ScheduledMessageLifecycle.Faulted or ScheduledMessageLifecycle.Expired, 1, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
     }
+}
+
+/// <summary>In-memory Draft Editor double. It does not resolve a writer, token store, SQLite connection, or scheduler.</summary>
+public sealed class HarnessScheduledMessageDraftService : IScheduledMessageDraftService
+{
+    private static readonly Guid TemplateId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
+    public HarnessScenario? Scenario { get; set; }
+    public ScheduledMessageDefinition CreateDraft(Guid botProfileId, MessageDestination destination) => Definition(Guid.NewGuid(), botProfileId, destination.ServerId, null, null);
+    public Task<IReadOnlyList<ScheduledDraftTemplateOption>> GetTemplateOptionsAsync(Guid botProfileId, ulong serverId, CancellationToken cancellationToken)
+    {
+        if (Scenario?.Kind == HarnessScenarioKind.DraftTemplateFailure) throw new InvalidOperationException("Harness template load failure");
+        IReadOnlyList<ScheduledDraftTemplateOption> options = Scenario?.Kind switch
+        {
+            HarnessScenarioKind.DraftNoTemplates => [],
+            HarnessScenarioKind.DraftDifferentScope => [new(Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd"), "Other scope template")],
+            HarnessScenarioKind.DraftLongTemplate => [new(TemplateId, "A deliberately long scoped template name used only to verify safe wrapping and selector reachability in narrow layouts")],
+            _ => [new(TemplateId, "Harness scoped template")]
+        };
+        return Task.FromResult(options);
+    }
+    public Task<ScheduledMessageDefinition?> LoadAsync(Guid botProfileId, ulong serverId, Guid scheduleId, CancellationToken cancellationToken)
+    {
+        var template = Scenario?.Kind == HarnessScenarioKind.DraftMissingTemplate ? Guid.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee") : TemplateId;
+        var definition = Definition(scheduleId, botProfileId, serverId, template, null) with
+        {
+            Name = Scenario?.Kind == HarnessScenarioKind.DraftDirty ? "Dirty persisted Draft" : "Harness persisted Draft",
+            TimeZoneId = Scenario?.Kind == HarnessScenarioKind.DraftInvalidZone ? "Invalid/Harness-Time-Zone" : "UTC",
+            Recurrence = Scenario?.Kind == HarnessScenarioKind.DraftWeeklyMissingDay ? ScheduledMessageRecurrence.Weekly : ScheduledMessageRecurrence.Daily,
+            Weekdays = Scenario?.Kind == HarnessScenarioKind.DraftWeeklyMissingDay ? [] : [DayOfWeek.Monday],
+            EndAt = Scenario?.Kind == HarnessScenarioKind.DraftInvalidDateRange ? DateTimeOffset.UtcNow.AddDays(-1) : null,
+            StartAt = DateTimeOffset.UtcNow
+        };
+        return Task.FromResult<ScheduledMessageDefinition?>(definition);
+    }
+    public Task<ScheduledDraftValidation> ValidateAsync(ScheduledMessageDefinition definition, CancellationToken cancellationToken)
+    {
+        var error = Scenario?.Kind switch
+        {
+            HarnessScenarioKind.DraftInvalid => "Schedule name and source are required.",
+            HarnessScenarioKind.DraftMissingTemplate => "The selected template is unavailable for this bot and server.",
+            HarnessScenarioKind.DraftWeeklyMissingDay => "Select at least one weekday for weekly recurrence.",
+            HarnessScenarioKind.DraftInvalidDateRange => "The end date cannot be before the start date.",
+            _ => null
+        };
+        var warning = Scenario?.Kind == HarnessScenarioKind.DraftNoFutureOccurrence ? "This draft has no future occurrence with its current dates and recurrence." : null;
+        return Task.FromResult(new ScheduledDraftValidation(error is null ? [] : [error], warning is null ? [] : [warning], "Harness recurrence preview", []));
+    }
+    public async Task<ScheduledDraftSaveResult> SaveAsync(ScheduledMessageDefinition definition, int expectedRevision, CancellationToken cancellationToken)
+    {
+        var validation = await ValidateAsync(definition, cancellationToken).ConfigureAwait(false);
+        if (!validation.IsValid || Scenario?.Kind == HarnessScenarioKind.DraftSaveFailure) return new(false, false, null, validation, "Harness save failure. No data was written.");
+        if (Scenario?.Kind == HarnessScenarioKind.DraftConflict) return new(false, true, null, validation, "This schedule changed elsewhere. Reload the latest version before saving.");
+        var saved = definition with { Revision = expectedRevision + 1, IsEnabled = false, SavedLifecycle = ScheduledMessageLifecycle.Draft };
+        return new(true, false, saved, validation, "Harness Draft save succeeded. No Discord action occurred.");
+    }
+    private static ScheduledMessageDefinition Definition(Guid id, Guid bot, ulong server, Guid? templateId, MessageContent? content) =>
+        new(id, bot, MessageDestination.Channel(server, "Harness server", 555555555555555555, "#harness-destination"), templateId, content, ScheduledMessageRecurrence.Daily, new TimeOnly(9, 30), "UTC", [], DateTimeOffset.UtcNow, null, false, MissedOccurrencePolicy.RequireManualApproval, 0, null, null) { Name = "Harness Draft", SavedLifecycle = ScheduledMessageLifecycle.Draft, Revision = 1 };
 }

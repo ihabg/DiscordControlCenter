@@ -115,11 +115,27 @@ Queue and terminal-history filters, sorting, paging, selection, and refresh gene
 independent. The isolated harness covers multi-page pending/history metadata, deleted schedules,
 and manual-review terminal states; it never accesses Discord, production storage, or unrelated apps.
 
-## Scheduled Messages read-only browser
+## Scheduled Messages Draft Editor
 
-**Scheduled Messages** is a metadata-only browser for the currently selected bot and
-server. It does not create, edit, enable, disable, archive, delete, render, test-send,
-or deliver a schedule. Those commands are intentionally deferred to the next increment.
+**Scheduled Messages** provides a non-executable Draft Editor for the currently selected
+bot and server. Open Messages, choose Scheduled messages, then select **New schedule** or
+open an existing Draft. Configure a friendly name, destination, inline source or scoped
+template, recurrence, time zone, and dates. Validate to see a safe recurrence preview,
+then save the Draft. Drafts remain disabled and cannot send, reserve occurrences, enter
+Manual Approvals, or connect to Discord.
+
+Template choices are loaded only for the selected bot/server scope. A removed reference
+is retained as **Deleted or unavailable template** and cannot be saved until replaced.
+Time-zone IDs are stable; an invalid saved zone is shown as unavailable rather than
+silently replaced. The editor tracks a persisted-field baseline. Selecting another
+schedule, starting a new Draft, leaving the section, cancelling, closing, or reloading
+latest requires the custom dark discard dialog when there are unsaved values. Keep
+editing is the safe default. Saves use an expected revision, so a stale save shows a
+conflict and requires Reload latest; reload establishes a new clean baseline.
+
+The next Scheduled Messages milestone is **Scheduled Messages — Lifecycle commands**:
+Enable, Disable, Re-enable, Archive, safe deletion, and final automatic-delivery live
+validation. None of those commands are available in this milestone.
 
 The page queries SQLite in the selected scope and supports safe metadata search,
 lifecycle, recurrence, template, destination, missed-occurrence policy, warning,
