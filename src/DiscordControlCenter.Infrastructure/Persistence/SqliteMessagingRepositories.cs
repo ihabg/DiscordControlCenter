@@ -16,7 +16,7 @@ public sealed class SqliteMessageTemplateRepository(SqliteConnectionFactory conn
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            SELECT Id, Name, Description, ContentJson, VariablesJson, TagsJson, Version, CreatedAt, UpdatedAt, LastUsedAt
+            SELECT Id, Name, Description, ContentJson, VariablesJson, TagsJson, Version, CreatedAt, UpdatedAt, LastUsedAt, BotProfileId, ServerId
             FROM MessageTemplates
             WHERE $search = '' OR Name LIKE '%' || $search || '%' OR COALESCE(Description, '') LIKE '%' || $search || '%'
             ORDER BY UpdatedAt DESC, Name COLLATE NOCASE
@@ -37,7 +37,7 @@ public sealed class SqliteMessageTemplateRepository(SqliteConnectionFactory conn
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
         command.CommandText =
-            "SELECT Id, Name, Description, ContentJson, VariablesJson, TagsJson, Version, CreatedAt, UpdatedAt, LastUsedAt FROM MessageTemplates WHERE Id = $id;";
+            "SELECT Id, Name, Description, ContentJson, VariablesJson, TagsJson, Version, CreatedAt, UpdatedAt, LastUsedAt, BotProfileId, ServerId FROM MessageTemplates WHERE Id = $id;";
         command.Parameters.AddWithValue("$id", templateId.ToString("D"));
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? ReadTemplate(reader) : null;
@@ -50,12 +50,12 @@ public sealed class SqliteMessageTemplateRepository(SqliteConnectionFactory conn
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            INSERT INTO MessageTemplates (Id, Name, Description, ContentJson, VariablesJson, TagsJson, Version, CreatedAt, UpdatedAt, LastUsedAt)
-            VALUES ($id, $name, $description, $content, $variables, $tags, $version, $createdAt, $updatedAt, $lastUsedAt)
+            INSERT INTO MessageTemplates (Id, Name, Description, ContentJson, VariablesJson, TagsJson, Version, CreatedAt, UpdatedAt, LastUsedAt, BotProfileId, ServerId)
+            VALUES ($id, $name, $description, $content, $variables, $tags, $version, $createdAt, $updatedAt, $lastUsedAt, $botProfileId, $serverId)
             ON CONFLICT(Id) DO UPDATE SET
                 Name = excluded.Name, Description = excluded.Description, ContentJson = excluded.ContentJson,
                 VariablesJson = excluded.VariablesJson, TagsJson = excluded.TagsJson, Version = excluded.Version,
-                UpdatedAt = excluded.UpdatedAt, LastUsedAt = excluded.LastUsedAt;
+                UpdatedAt = excluded.UpdatedAt, LastUsedAt = excluded.LastUsedAt, BotProfileId = excluded.BotProfileId, ServerId = excluded.ServerId;
             """;
         command.Parameters.AddWithValue("$id", messageTemplate.Id.ToString("D"));
         command.Parameters.AddWithValue("$name", messageTemplate.Name.Trim());
@@ -67,6 +67,8 @@ public sealed class SqliteMessageTemplateRepository(SqliteConnectionFactory conn
         command.Parameters.AddWithValue("$createdAt", messageTemplate.CreatedAt.ToString("O"));
         command.Parameters.AddWithValue("$updatedAt", messageTemplate.UpdatedAt.ToString("O"));
         command.Parameters.AddWithValue("$lastUsedAt", messageTemplate.LastUsedAt?.ToString("O") ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$botProfileId", messageTemplate.BotProfileId?.ToString("D") ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$serverId", messageTemplate.ServerId?.ToString(CultureInfo.InvariantCulture) ?? (object)DBNull.Value);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -91,7 +93,9 @@ public sealed class SqliteMessageTemplateRepository(SqliteConnectionFactory conn
             DateTimeOffset.Parse(reader.GetString(8), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
             reader.IsDBNull(9) ? null : DateTimeOffset.Parse(reader.GetString(9), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind))
         {
-            Version = reader.GetInt32(6)
+            Version = reader.GetInt32(6),
+            BotProfileId = reader.IsDBNull(10) ? null : Guid.Parse(reader.GetString(10)),
+            ServerId = reader.IsDBNull(11) ? null : ulong.Parse(reader.GetString(11), CultureInfo.InvariantCulture)
         };
 }
 

@@ -12,6 +12,17 @@ public sealed class ScheduledMessageDraftService(IScheduledMessageRepository sch
         return item is not null && item.BotProfileId == botProfileId && item.Destination.ServerId == serverId ? item : null;
     }
 
+    public async Task<IReadOnlyList<ScheduledDraftTemplateOption>> GetTemplateOptionsAsync(Guid botProfileId, ulong serverId, CancellationToken cancellationToken)
+    {
+        if (botProfileId == Guid.Empty || serverId == 0) return [];
+        var templatesInScope = await templates.SearchAsync(null, cancellationToken).ConfigureAwait(false);
+        return templatesInScope
+            .Where(template => template.BotProfileId == botProfileId && template.ServerId == serverId)
+            .OrderBy(template => template.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(template => new ScheduledDraftTemplateOption(template.Id, template.Name))
+            .ToArray();
+    }
+
     public async Task<ScheduledDraftValidation> ValidateAsync(ScheduledMessageDefinition definition, CancellationToken cancellationToken)
     {
         var errors = new List<string>(); var warnings = new List<string>();
@@ -19,7 +30,12 @@ public sealed class ScheduledMessageDraftService(IScheduledMessageRepository sch
         if (definition.BotProfileId == Guid.Empty) errors.Add("Select a bot before saving.");
         if (definition.Destination.ServerId == 0 || definition.Destination.ChannelId is null) errors.Add("Select a text-channel destination.");
         if (definition.TemplateId is null && definition.InlineContent is null) errors.Add("Select a template or supported message source.");
-        if (definition.TemplateId is Guid templateId && await templates.GetAsync(templateId, cancellationToken).ConfigureAwait(false) is null) errors.Add("The selected template is unavailable.");
+        if (definition.TemplateId is Guid templateId)
+        {
+            var template = await templates.GetAsync(templateId, cancellationToken).ConfigureAwait(false);
+            if (template is null || template.BotProfileId != definition.BotProfileId || template.ServerId != definition.Destination.ServerId)
+                errors.Add("The selected template is unavailable for this bot and server.");
+        }
         try { _ = TimeZoneInfo.FindSystemTimeZoneById(definition.TimeZoneId); } catch { errors.Add("Select a valid time zone."); }
         if (!Enum.IsDefined(definition.Recurrence)) errors.Add("Select a supported recurrence.");
         if (definition.Recurrence == ScheduledMessageRecurrence.Weekly && definition.Weekdays.Length == 0) errors.Add("Select at least one weekday for weekly recurrence.");

@@ -9,7 +9,7 @@ public sealed class SqliteDatabaseInitializer(
     SqliteConnectionFactory connectionFactory,
     ILogger<SqliteDatabaseInitializer> logger) : IDatabaseInitializer
 {
-    private const int CurrentSchemaVersion = 7;
+    private const int CurrentSchemaVersion = 8;
 
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
@@ -258,7 +258,9 @@ public sealed class SqliteDatabaseInitializer(
                     Version INTEGER NOT NULL,
                     CreatedAt TEXT NOT NULL,
                     UpdatedAt TEXT NOT NULL,
-                    LastUsedAt TEXT NULL
+                    LastUsedAt TEXT NULL,
+                    BotProfileId TEXT NULL,
+                    ServerId TEXT NULL
                 );
 
                 CREATE INDEX IF NOT EXISTS IX_MessageTemplates_Name
@@ -375,13 +377,16 @@ public sealed class SqliteDatabaseInitializer(
         await EnsureColumnAsync(connection, transaction, "ScheduledMessageOccurrences", "SnapshotChannelId", "TEXT NULL", cancellationToken).ConfigureAwait(false);
         await EnsureColumnAsync(connection, transaction, "ScheduledMessageOccurrences", "SnapshotTemplateId", "TEXT NULL", cancellationToken).ConfigureAwait(false);
         await EnsureColumnAsync(connection, transaction, "ScheduledMessageOccurrences", "SnapshotTemplateVersion", "INTEGER NULL", cancellationToken).ConfigureAwait(false);
+        await EnsureColumnAsync(connection, transaction, "MessageTemplates", "BotProfileId", "TEXT NULL", cancellationToken).ConfigureAwait(false);
+        await EnsureColumnAsync(connection, transaction, "MessageTemplates", "ServerId", "TEXT NULL", cancellationToken).ConfigureAwait(false);
         await using (var approvalIndexes = connection.CreateCommand())
         {
             approvalIndexes.Transaction = transaction;
             approvalIndexes.CommandText =
                 "CREATE INDEX IF NOT EXISTS IX_ScheduledApproval_Query ON ScheduledMessageOccurrences (State, OccurrenceAt, OccurrenceId); " +
                 "CREATE INDEX IF NOT EXISTS IX_ScheduledApproval_History ON ScheduledMessageOccurrences (FinishedAt DESC, OccurrenceId); " +
-                "CREATE INDEX IF NOT EXISTS IX_ScheduledMessages_ApprovalName ON ScheduledMessages (BotProfileId, ServerId, ScheduleName COLLATE NOCASE);";
+                "CREATE INDEX IF NOT EXISTS IX_ScheduledMessages_ApprovalName ON ScheduledMessages (BotProfileId, ServerId, ScheduleName COLLATE NOCASE); " +
+                "CREATE INDEX IF NOT EXISTS IX_MessageTemplates_Scope ON MessageTemplates (BotProfileId, ServerId, UpdatedAt DESC);";
             await approvalIndexes.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
         await using (var approvalMetadataBackfill = connection.CreateCommand())

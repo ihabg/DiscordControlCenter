@@ -174,10 +174,12 @@ public sealed record ScheduledDraftValidation(IReadOnlyList<string> Errors, IRea
 }
 
 public sealed record ScheduledDraftSaveResult(bool Saved, bool Conflict, ScheduledMessageDefinition? Definition, ScheduledDraftValidation Validation, string? Message);
+public sealed record ScheduledDraftTemplateOption(Guid Id, string Name);
 
 public interface IScheduledMessageDraftService
 {
     ScheduledMessageDefinition CreateDraft(Guid botProfileId, MessageDestination destination);
+    Task<IReadOnlyList<ScheduledDraftTemplateOption>> GetTemplateOptionsAsync(Guid botProfileId, ulong serverId, CancellationToken cancellationToken);
     Task<ScheduledMessageDefinition?> LoadAsync(Guid botProfileId, ulong serverId, Guid scheduleId, CancellationToken cancellationToken);
     Task<ScheduledDraftValidation> ValidateAsync(ScheduledMessageDefinition definition, CancellationToken cancellationToken);
     Task<ScheduledDraftSaveResult> SaveAsync(ScheduledMessageDefinition definition, int expectedRevision, CancellationToken cancellationToken);

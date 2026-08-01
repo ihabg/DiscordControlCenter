@@ -372,7 +372,11 @@ public sealed class MessagesViewModel : ObservableObject, IDisposable
         var template = new MessageTemplate(
             Guid.NewGuid(), TemplateName.Trim(), null, content,
             ImmutableArray<TemplateVariableDefinition>.Empty,
-            ImmutableArray<string>.Empty, now, now, null);
+            ImmutableArray<string>.Empty, now, now, null)
+        {
+            BotProfileId = _botProfileId,
+            ServerId = _serverId
+        };
         await _templates.SaveAsync(template, cancellationToken).ConfigureAwait(false);
         await LoadTemplatesAsync(cancellationToken).ConfigureAwait(false);
         StatusMessage = "Template saved locally. Template content is retained only because it was explicitly saved.";

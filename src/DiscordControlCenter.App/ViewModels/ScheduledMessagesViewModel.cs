@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
 using DiscordControlCenter.App.Mvvm;
+using DiscordControlCenter.App.Services;
 using DiscordControlCenter.Application.Messaging;
 using DiscordControlCenter.Core.Messaging;
 
@@ -17,9 +18,11 @@ public sealed record ScheduledChoice<T>(string Label, T? Value, bool IsAny = fal
 /// </summary>
 public sealed class ScheduledMessagesViewModel : ObservableObject, IDisposable
 {
+    private enum DraftPendingAction { SelectSchedule, StartNewDraft, LeaveScheduledMessages, CloseEditor, ReloadLatest }
     private const int RecentOccurrenceLimit = 10;
     private readonly IScheduledMessageQueryService service;
     private readonly IScheduledMessageDraftService? drafts;
+    private readonly IDraftDiscardConfirmationService? discardConfirmation;
     private ScheduledMessageDefinition? _draft;
     private int _draftRevision;
     private bool _draftSaving;
@@ -29,6 +32,13 @@ public sealed class ScheduledMessagesViewModel : ObservableObject, IDisposable
     private ScheduledMessageDefinition? _draftBaseline;
     private ScheduledChoice<ScheduledMessageRecurrence>? _draftRecurrence;
     private ScheduledChoice<string>? _draftTimeZone;
+    private ScheduledChoice<Guid>? _draftTemplate;
+    private CancellationTokenSource? _templateCancellation;
+    private int _templateVersion;
+    private bool _templatesLoading;
+    private string? _templateLoadError;
+    private DraftPendingAction? _pendingDraftAction;
+    private Action? _pendingDraftContinuation;
     private Guid? _botId;
     private ulong? _serverId;
     private string _botName = "No bot selected";
@@ -67,6 +77,7 @@ public sealed class ScheduledMessagesViewModel : ObservableObject, IDisposable
     public ObservableCollection<ScheduledMessageOccurrenceListItem> RecentOccurrences { get; } = [];
     public ObservableCollection<ScheduledChoice<Guid>> Templates { get; } = [new("Any template", default, true)];
     public ObservableCollection<ScheduledChoice<ulong>> Destinations { get; } = [new("Any destination", default, true)];
+    public ObservableCollection<ScheduledChoice<Guid>> DraftTemplates { get; } = [];
     public ObservableCollection<ScheduledChoice<string>> DraftTimeZones { get; } = new(TimeZoneInfo.GetSystemTimeZones().Select(zone => new ScheduledChoice<string>($"{zone.DisplayName} ({zone.Id})", zone.Id)));
     public IReadOnlyList<ScheduledChoice<ScheduledMessageLifecycle>> Lifecycles { get; } =
     [new("Any lifecycle", default, true), new("Draft", ScheduledMessageLifecycle.Draft), new("Enabled", ScheduledMessageLifecycle.Enabled), new("Disabled", ScheduledMessageLifecycle.Disabled), new("Needs attention", ScheduledMessageLifecycle.Faulted), new("Expired", ScheduledMessageLifecycle.Expired), new("Archived", ScheduledMessageLifecycle.Archived)];
@@ -93,10 +104,11 @@ public sealed class ScheduledMessagesViewModel : ObservableObject, IDisposable
     public RelayCommand CancelDraftCommand { get; }
     public event EventHandler<string>? MessagesSectionRequested;
 
-    public ScheduledMessagesViewModel(IScheduledMessageQueryService service, IScheduledMessageDraftService? drafts = null)
+    public ScheduledMessagesViewModel(IScheduledMessageQueryService service, IScheduledMessageDraftService? drafts = null, IDraftDiscardConfirmationService? discardConfirmation = null)
     {
         this.service = service;
         this.drafts = drafts;
+        this.discardConfirmation = discardConfirmation;
         _lifecycle = Lifecycles[0]; _recurrence = Recurrences[0]; _missedPolicy = MissedPolicies[0]; _warning = WarningStates[0]; _sort = Sorts[0];
         RefreshCommand = new AsyncRelayCommand(LoadAsync, CanQuery);
         ClearFiltersCommand = new AsyncRelayCommand(ClearFiltersAsync, () => !IsLoading);
@@ -104,13 +116,13 @@ public sealed class ScheduledMessagesViewModel : ObservableObject, IDisposable
         PreviousPageCommand = new AsyncRelayCommand(token => GoToPageAsync(PageNumber - 1, token), () => CanQuery() && PageNumber > 1);
         NextPageCommand = new AsyncRelayCommand(token => GoToPageAsync(PageNumber + 1, token), () => CanQuery() && PageNumber < TotalPages);
         LastPageCommand = new AsyncRelayCommand(token => GoToPageAsync(TotalPages, token), () => CanQuery() && PageNumber < TotalPages);
-        NavigateMessagesSectionCommand = new RelayCommand(section => MessagesSectionRequested?.Invoke(this, section as string ?? "Compose"));
+        NavigateMessagesSectionCommand = new RelayCommand(section => ContinueAfterDiscard(DraftPendingAction.LeaveScheduledMessages, "leave Scheduled Messages", () => MessagesSectionRequested?.Invoke(this, section as string ?? "Compose")));
         NewDraftCommand = new AsyncRelayCommand(NewDraftAsync, () => CanEditDraft);
         SaveDraftCommand = new AsyncRelayCommand(SaveDraftAsync, () => CanEditDraft && Draft is not null && !IsDraftSaving);
         ValidateDraftCommand = new AsyncRelayCommand(ValidateDraftAsync, () => CanEditDraft && Draft is not null && !IsDraftSaving);
         EditDraftCommand = new AsyncRelayCommand(EditDraftAsync, () => CanEditDraft && SelectedSchedule?.Lifecycle == ScheduledMessageLifecycle.Draft && !IsDraftSaving);
         ReloadDraftCommand = new AsyncRelayCommand(ReloadDraftAsync, () => CanEditDraft && Draft is not null && !IsDraftSaving);
-        CancelDraftCommand = new RelayCommand(_ => { Draft = null; DraftMessage = "Draft editor closed without saving."; DraftConflict = false; });
+        CancelDraftCommand = new RelayCommand(_ => ContinueAfterDiscard(DraftPendingAction.CloseEditor, "close the Draft editor", CloseDraft));
     }
 
     public string Search { get => _search; set { if (SetProperty(ref _search, value)) ResetPage(); } }
@@ -138,7 +150,16 @@ public sealed class ScheduledMessagesViewModel : ObservableObject, IDisposable
     public string ActiveFilterSummary => BuildFilterSummary();
     public string ScheduleStateMessage => _botId is null || _serverId is null ? ScopeSummary : IsLoading ? "Loading scheduled messages…" : Schedules.Count == 0 ? (HasActiveFilters ? "No scheduled messages match these filters. Clear filters or adjust the scope." : "No schedules exist in this bot and server scope yet.") : string.Empty;
     public bool HasActiveFilters => !string.IsNullOrWhiteSpace(Search) || SelectedLifecycle?.IsAny != true || SelectedRecurrence?.IsAny != true || SelectedTemplate?.IsAny != true || SelectedDestination?.IsAny != true || SelectedMissedPolicy?.IsAny != true || SelectedWarningState?.IsAny != true || CreatedFrom is not null || CreatedTo is not null || NextRunFrom is not null || NextRunTo is not null || SelectedSort?.Value != ScheduledMessageSort.NextRunAscending || PageSize != 25;
-    public ScheduledMessageListItem? SelectedSchedule { get => _selected; set { if (SetProperty(ref _selected, value)) _ = LoadDetailAsync(value); } }
+    public ScheduledMessageListItem? SelectedSchedule
+    {
+        get => _selected;
+        set
+        {
+            if (ReferenceEquals(_selected, value)) return;
+            if (IsDraftDirty && !ContinueAfterDiscard(DraftPendingAction.SelectSchedule, "select another schedule", () => SetSelectedSchedule(value))) { OnPropertyChanged(); return; }
+            SetSelectedSchedule(value);
+        }
+    }
     public ScheduledMessageDetail? Detail { get => _detail; private set => SetProperty(ref _detail, value); }
     public bool IsDetailLoading { get => _detailLoading; private set => SetProperty(ref _detailLoading, value); }
     public string? DetailError { get => _detailError; private set => SetProperty(ref _detailError, value); }
@@ -146,12 +167,18 @@ public sealed class ScheduledMessagesViewModel : ObservableObject, IDisposable
     public string? OccurrenceError { get => _occurrenceError; private set => SetProperty(ref _occurrenceError, value); }
     public string OccurrenceStateMessage => IsOccurrencesLoading ? "Loading the latest 10 safe occurrence records…" : RecentOccurrences.Count == 0 && SelectedSchedule is not null && OccurrenceError is null ? "No recent occurrences are available for this schedule." : string.Empty;
 
-    public ScheduledMessageDefinition? Draft { get => _draft; private set { if (SetProperty(ref _draft, value)) { OnPropertyChanged(nameof(IsEditingDraft)); SaveDraftCommand.NotifyCanExecuteChanged(); ValidateDraftCommand.NotifyCanExecuteChanged(); } } }
+    public ScheduledMessageDefinition? Draft { get => _draft; private set { if (SetProperty(ref _draft, value)) { OnPropertyChanged(nameof(IsEditingDraft)); OnPropertyChanged(nameof(IsDraftDirty)); OnPropertyChanged(nameof(DraftName)); OnPropertyChanged(nameof(DraftBody)); OnPropertyChanged(nameof(DraftTimeZone)); OnPropertyChanged(nameof(DraftStartDate)); OnPropertyChanged(nameof(DraftEndDate)); OnPropertyChanged(nameof(DraftLocalTime)); OnPropertyChanged(nameof(Monday)); OnPropertyChanged(nameof(Wednesday)); OnPropertyChanged(nameof(Friday)); OnPropertyChanged(nameof(HasMissingDraftTemplate)); SaveDraftCommand.NotifyCanExecuteChanged(); ValidateDraftCommand.NotifyCanExecuteChanged(); } } }
     public bool IsEditingDraft => Draft is not null;
     public bool IsDraftSaving { get => _draftSaving; private set { if (SetProperty(ref _draftSaving, value)) SaveDraftCommand.NotifyCanExecuteChanged(); } }
     public string? DraftMessage { get => _draftMessage; private set => SetProperty(ref _draftMessage, value); }
     public bool CanEditDraft => drafts is not null && _botId is not null && _serverId is not null;
     public bool DraftConflict { get => _draftConflict; private set { if (SetProperty(ref _draftConflict, value)) { SaveDraftCommand.NotifyCanExecuteChanged(); ReloadDraftCommand.NotifyCanExecuteChanged(); } } }
+    public bool IsTemplateLoading { get => _templatesLoading; private set => SetProperty(ref _templatesLoading, value); }
+    public string? TemplateLoadError { get => _templateLoadError; private set => SetProperty(ref _templateLoadError, value); }
+    public int TemplateGeneration => _templateVersion;
+    public bool NoDraftTemplatesAvailable => !IsTemplateLoading && TemplateLoadError is null && DraftTemplates.Count == 0;
+    public bool HasMissingDraftTemplate => Draft?.TemplateId is Guid templateId && !DraftTemplates.Any(item => item.Value == templateId && item.Label != "Deleted or unavailable template");
+    public ScheduledChoice<Guid>? SelectedDraftTemplate { get => _draftTemplate; set { if (SetProperty(ref _draftTemplate, value) && Draft is not null) UpdateDraft(item => value?.Value is Guid templateId ? item with { TemplateId = templateId, InlineContent = null } : item with { TemplateId = null }); } }
     public string DraftName { get => Draft?.Name ?? string.Empty; set => UpdateDraft(item => item with { Name = value }); }
     public string DraftBody { get => Draft?.InlineContent?.Body ?? string.Empty; set => UpdateDraft(item => item with { InlineContent = new MessageContent(value, null, AllowedMentionPolicy.None), TemplateId = null }); }
     public string DraftTimeZone { get => Draft?.TimeZoneId ?? string.Empty; set => UpdateDraft(item => item with { TimeZoneId = value }); }
@@ -171,7 +198,8 @@ public sealed class ScheduledMessagesViewModel : ObservableObject, IDisposable
         RefreshCommand.Cancel(); _botId = botId; _serverId = serverId; _botName = botName ?? "No bot selected"; _serverName = serverName ?? "No server selected";
         InvalidateSelection(); ResetPage(); QueryError = null; Schedules.Clear(); _total = 0;
         OnPropertyChanged(nameof(ScopeSummary)); OnPropertyChanged(nameof(ScheduleStateMessage)); OnPropertyChanged(nameof(TotalCount)); OnPropertyChanged(nameof(TotalPages));
-        NotifyCommands();
+        NotifyCommands(); NewDraftCommand.NotifyCanExecuteChanged(); EditDraftCommand.NotifyCanExecuteChanged();
+        _ = LoadDraftTemplatesAsync(CancellationToken.None);
     }
 
     public async Task LoadAsync(CancellationToken cancellationToken)
@@ -264,7 +292,12 @@ public sealed class ScheduledMessagesViewModel : ObservableObject, IDisposable
     private Task NewDraftAsync(CancellationToken token)
     {
         if (drafts is null || _botId is not Guid bot || _serverId is not ulong server) return Task.CompletedTask;
-        Draft = drafts.CreateDraft(bot, MessageDestination.Channel(server, _serverName, 0, "Select a destination")); _draftBaseline = Draft; SelectedDraftTimeZone = DraftTimeZones.FirstOrDefault(item => item.Value == Draft.TimeZoneId); SelectedDraftRecurrence = Recurrences.Single(item => item.Value == Draft.Recurrence); _draftRevision = 0; DraftMessage = "New draft. Select a destination and message source, then validate."; return Task.CompletedTask;
+        if (!ContinueAfterDiscard(DraftPendingAction.StartNewDraft, "start a new Draft", () => StartNewDraft(bot, server))) return Task.CompletedTask;
+        return Task.CompletedTask;
+    }
+    private void StartNewDraft(Guid bot, ulong server)
+    {
+        Draft = drafts!.CreateDraft(bot, MessageDestination.Channel(server, _serverName, 0, "Select a destination")); _draftBaseline = Draft; SetDraftTemplateSelection(null); SelectedDraftTimeZone = DraftTimeZones.FirstOrDefault(item => item.Value == Draft.TimeZoneId); SelectedDraftRecurrence = Recurrences.Single(item => item.Value == Draft.Recurrence); _draftRevision = 0; DraftMessage = "New draft. Select a destination and message source, then validate.";
     }
     private async Task ValidateDraftAsync(CancellationToken token)
     {
@@ -278,15 +311,83 @@ public sealed class ScheduledMessagesViewModel : ObservableObject, IDisposable
     {
         if (drafts is null || SelectedSchedule is null || _botId is not Guid bot || _serverId is not ulong server) return;
         var loaded = await drafts.LoadAsync(bot, server, SelectedSchedule.Id, token).ConfigureAwait(false); if (loaded is null || loaded.SavedLifecycle != ScheduledMessageLifecycle.Draft) { DraftMessage = "Only an available Draft schedule can be edited."; return; }
-        Draft = loaded; _draftBaseline = loaded; SelectedDraftTimeZone = DraftTimeZones.FirstOrDefault(item => item.Value == loaded.TimeZoneId) ?? new ScheduledChoice<string>("Invalid or unavailable saved time zone", loaded.TimeZoneId); SelectedDraftRecurrence = Recurrences.Single(item => item.Value == loaded.Recurrence); _draftRevision = loaded.Revision; DraftConflict = false; OnPropertyChanged(nameof(IsDraftDirty)); DraftMessage = $"Editing Draft revision {loaded.Revision}.";
+        Draft = loaded; _draftBaseline = loaded; SelectedDraftTimeZone = DraftTimeZones.FirstOrDefault(item => item.Value == loaded.TimeZoneId) ?? new ScheduledChoice<string>("Invalid or unavailable saved time zone", loaded.TimeZoneId); SelectedDraftRecurrence = Recurrences.Single(item => item.Value == loaded.Recurrence); SetDraftTemplateSelection(FindOrMissingTemplate(loaded.TemplateId)); _draftRevision = loaded.Revision; DraftConflict = false; OnPropertyChanged(nameof(IsDraftDirty)); DraftMessage = $"Editing Draft revision {loaded.Revision}.";
     }
     private void UpdateDraft(Func<ScheduledMessageDefinition, ScheduledMessageDefinition> update) { if (Draft is not null) { Draft = update(Draft); OnPropertyChanged(nameof(IsDraftDirty)); } }
     private void SetWeekday(DayOfWeek day, bool selected) { if (Draft is null) return; var days = Draft.Weekdays.ToHashSet(); if (selected) days.Add(day); else days.Remove(day); UpdateDraft(item => item with { Weekdays = [.. days.Order()] }); }
     private async Task ReloadDraftAsync(CancellationToken token)
     {
         if (drafts is null || Draft is null || _botId is not Guid bot || _serverId is not ulong server) return;
+        if (!ContinueAfterDiscard(DraftPendingAction.ReloadLatest, "reload the latest Draft and replace unsaved values", () => { })) return;
         var loaded = await drafts.LoadAsync(bot, server, Draft.Id, token).ConfigureAwait(false); if (loaded is null) { DraftMessage = "The latest Draft is unavailable."; return; }
-        Draft = loaded; _draftRevision = loaded.Revision; DraftConflict = false; DraftMessage = "Reloaded the latest Draft. Earlier unsaved values were not saved."; await ValidateDraftAsync(token).ConfigureAwait(false);
+        Draft = loaded; _draftBaseline = loaded; _draftRevision = loaded.Revision; SetDraftTemplateSelection(FindOrMissingTemplate(loaded.TemplateId)); DraftConflict = false; DraftMessage = "Reloaded the latest Draft. Earlier unsaved values were not saved."; await ValidateDraftAsync(token).ConfigureAwait(false);
+    }
+
+    private bool ContinueAfterDiscard(DraftPendingAction action, string actionDescription, Action continuation)
+    {
+        if (!IsDraftDirty) { continuation(); return true; }
+        if (IsDraftSaving || _pendingDraftAction is not null) return false;
+        _pendingDraftAction = action;
+        _pendingDraftContinuation = continuation;
+        if (discardConfirmation?.ConfirmDiscard(actionDescription) != true) { ClearPendingDraftAction(); return false; }
+        var pending = _pendingDraftContinuation;
+        ClearPendingDraftAction();
+        pending?.Invoke();
+        return true;
+    }
+
+    private void ClearPendingDraftAction() { _pendingDraftAction = null; _pendingDraftContinuation = null; }
+
+    private void SetSelectedSchedule(ScheduledMessageListItem? value)
+    {
+        if (SetProperty(ref _selected, value)) _ = LoadDetailAsync(value);
+    }
+
+    private void CloseDraft()
+    {
+        Draft = null; _draftBaseline = null; SetDraftTemplateSelection(null); DraftMessage = "Draft editor closed without saving."; DraftConflict = false;
+    }
+
+    private async Task LoadDraftTemplatesAsync(CancellationToken cancellationToken)
+    {
+        Cancel(ref _templateCancellation);
+        var version = ++_templateVersion;
+        OnPropertyChanged(nameof(TemplateGeneration));
+        DraftTemplates.Clear(); TemplateLoadError = null;
+        OnPropertyChanged(nameof(NoDraftTemplatesAvailable));
+        if (drafts is null || _botId is not Guid bot || _serverId is not ulong server) return;
+        _templateCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        IsTemplateLoading = true;
+        try
+        {
+            var options = await drafts.GetTemplateOptionsAsync(bot, server, _templateCancellation.Token).ConfigureAwait(false);
+            if (version != _templateVersion || _botId != bot || _serverId != server) return;
+            foreach (var option in options) DraftTemplates.Add(new ScheduledChoice<Guid>(option.Name, option.Id));
+            var selected = FindOrMissingTemplate(Draft?.TemplateId);
+            SetDraftTemplateSelection(selected);
+            if (Draft?.TemplateId is Guid templateId && selected?.Label == "Deleted or unavailable template")
+                DraftMessage = "The selected template is deleted or unavailable. Choose another template before saving.";
+        }
+        catch (OperationCanceledException) when (_templateCancellation?.IsCancellationRequested == true) { }
+        catch
+        {
+            if (version == _templateVersion) TemplateLoadError = "Templates could not be loaded for this bot and server. Try again before saving.";
+        }
+        finally
+        {
+            if (version == _templateVersion) { IsTemplateLoading = false; OnPropertyChanged(nameof(NoDraftTemplatesAvailable)); OnPropertyChanged(nameof(HasMissingDraftTemplate)); }
+        }
+    }
+
+    private ScheduledChoice<Guid>? FindOrMissingTemplate(Guid? templateId)
+    {
+        if (templateId is not Guid id) return null;
+        return DraftTemplates.FirstOrDefault(item => item.Value == id) ?? new ScheduledChoice<Guid>("Deleted or unavailable template", id);
+    }
+
+    private void SetDraftTemplateSelection(ScheduledChoice<Guid>? selection)
+    {
+        if (SetProperty(ref _draftTemplate, selection, nameof(SelectedDraftTemplate))) { }
     }
 
     public void Dispose()
@@ -294,11 +395,13 @@ public sealed class ScheduledMessagesViewModel : ObservableObject, IDisposable
         RefreshCommand.Cancel();
         Cancel(ref _detailCancellation);
         Cancel(ref _occurrenceCancellation);
+        Cancel(ref _templateCancellation);
         RefreshCommand.Dispose();
         ClearFiltersCommand.Dispose();
         FirstPageCommand.Dispose();
         PreviousPageCommand.Dispose();
         NextPageCommand.Dispose();
         LastPageCommand.Dispose();
+        NewDraftCommand.Dispose(); SaveDraftCommand.Dispose(); ValidateDraftCommand.Dispose(); EditDraftCommand.Dispose(); ReloadDraftCommand.Dispose();
     }
 }

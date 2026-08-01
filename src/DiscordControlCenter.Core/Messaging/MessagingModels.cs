@@ -213,6 +213,8 @@ public sealed record MessageTemplate(
     DateTimeOffset? LastUsedAt)
 {
     public int Version { get; init; } = 1;
+    public Guid? BotProfileId { get; init; }
+    public ulong? ServerId { get; init; }
 }
 
 public sealed record TemplateRenderResult(
